@@ -1,0 +1,55 @@
+Apurva Raj
+857-397-5421 | raj.ap@northeastern.edu | linkedin.com/apurva-r-raj/ | github.com/apurva9808
+
+Summary
+Full-stack software engineer with experience building React + TypeScript frontends and Node.js / Django backends, delivering scalable APIs and cloud deployments on AWS. Experienced in CI/CD, automated testing, and RAG-based LLM workflows, including prompt refinement and evaluation of tools like Cursor, Copilot, and Claude.
+
+Technical Skills
+Languages: Java, Python, JavaScript, TypeScript, HTML/CSS, SCSS
+Frameworks: ReactJS, Node.js, Spring Boot, ExpressJS, Django, React Native
+Cloud Tech: Docker, Kubernetes, Amazon Web Services (AWS)
+Database: PostgreSQL, MySQL, MongoDB, Redis
+Dev Tools: Kafka, Debezium, Git, GitHub Actions, ZooKeeper, Linux
+Others: Agile Methodology, Microservices, Tableau, SQL, JSON, Postman, Figma, GPT, Copilot, OpenAI, Gemini
+
+Experience
+
+Admins — Boston, MA
+Software Engineer (Sep 2025 – Dec 2025)
+- Redesigned a React + TypeScript frontend and built secure Node.js + PostgreSQL APIs, delivering 2x faster rendering, handling 10,000+ requests/day, and reducing latency by 1.5x.
+- Automated end-to-end testing and deployment on AWS (CloudFront, Elastic Beanstalk, RDS) using Playwright, increasing test coverage by 2x.
+- Compared Cursor, Copilot, Claude, and other LLMs for legacy system workflow conversion.
+- Improved prompt design with domain context and constraints, achieving 1.7x higher first-pass accuracy and 1.5x lower manual rework.
+
+Daimler Truck Innovation Centre India — Bangalore, India
+Software Engineer (Dec 2021 – Dec 2023)
+- Built a workflow portal using Django and GraphQL, scaling to 2000+ users.
+- Collaborated with 50 engineers across Agile teams, improving efficiency.
+- Designed CI/CD pipelines using Jenkins and Docker, speeding releases by 3x.
+- Automated Jira reporting using Python and REST APIs, reducing manual work by 1.5x.
+
+Mercedes-Benz R&D India — Bangalore, India
+Software Engineer (Jan 2021 – Nov 2021)
+- Built CDC pipelines using Debezium and Kafka, enabling 5x faster analytics.
+- Scaled applications using Kubernetes supporting 100K daily requests.
+- Developed event-driven microservices with Spring Boot processing 1M+ messages/day.
+- Implemented testing using JUnit, Cypress, and Postman, reducing defects.
+
+Projects
+
+AI Document Q&A Assistant
+- Built a RAG-based system using FAISS embeddings and OpenAI/Claude APIs.
+- Retrieved relevant context and generated grounded responses via REST APIs.
+
+Event-driven Cloud Native WebApp
+- Built a Spring Boot app on AWS with S3, RDS, Lambda, and Terraform.
+- Automated infrastructure and CI/CD using GitHub Actions and Packer.
+
+Education
+
+Northeastern University — Boston, MA
+Master’s in Software Engineering (Jan 2024 – Apr 2026)
+GPA: 3.7/4
+
+M S Ramaiah Institute of Technology — Bangalore, India
+Bachelor of Engineering (2017 – 2021)

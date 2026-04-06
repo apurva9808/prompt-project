@@ -1,0 +1,414 @@
+{
+  "summary": {
+    "prompt_only": {
+      "accuracy": 62.5,
+      "hallucination_rate": 12.5,
+      "consistency": 62.5,
+      "correct_count": 5,
+      "hallucinated_count": 1,
+      "total": 8
+    },
+    "rag": {
+      "accuracy": 75.0,
+      "hallucination_rate": 12.5,
+      "consistency": 75.0,
+      "correct_count": 6,
+      "hallucinated_count": 1,
+      "total": 8
+    },
+    "fine_tuned_model": {
+      "status": "prepared_not_trained",
+      "accuracy": null,
+      "hallucination_rate": null,
+      "consistency": null,
+      "note": "Training and validation JSONL files were generated. A real OpenAI fine-tuning job was not auto-submitted to avoid unintended billable charges."
+    }
+  },
+  "details": [
+    {
+      "id": "T07",
+      "query": "Which programming languages does Apurva know?",
+      "ground_truth": "Java, Python, JavaScript, TypeScript, HTML/CSS, SCSS",
+      "prompt_only": {
+        "answer": "Apurva knows the following programming languages: Java, Python, JavaScript, Typescript, HTML/CSS, and SCSS.",
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer accurately lists the programming languages known by Apurva as per the ground truth."
+        }
+      },
+      "rag": {
+        "answer": "Apurva knows the following programming languages: Java, Python, JavaScript, Typescript, HTML/CSS, and SCSS.",
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer accurately lists the programming languages known by Apurva as per the ground truth."
+        },
+        "retrieved_chunks": [
+          {
+            "chunk_id": "C02",
+            "title": "Technical Skills",
+            "metadata": {
+              "section": "Technical Skills"
+            }
+          },
+          {
+            "chunk_id": "C01",
+            "title": "Education",
+            "metadata": {
+              "section": "Education"
+            }
+          },
+          {
+            "chunk_id": "C07",
+            "title": "Projects-1",
+            "metadata": {
+              "section": "Projects",
+              "part": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "T09",
+      "query": "What frontend frameworks does Apurva know?",
+      "ground_truth": "ReactJS and React-Native",
+      "prompt_only": {
+        "answer": "Apurva knows the following frontend frameworks: ReactJS and React-Native.",
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer accurately reflects the ground truth provided, listing the correct frontend frameworks that Apurva knows."
+        }
+      },
+      "rag": {
+        "answer": "Apurva knows the following frontend frameworks: ReactJS and React-Native.",
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer accurately reflects the ground truth provided, listing the correct frontend frameworks that Apurva knows."
+        },
+        "retrieved_chunks": [
+          {
+            "chunk_id": "C07",
+            "title": "Projects-1",
+            "metadata": {
+              "section": "Projects",
+              "part": 1
+            }
+          },
+          {
+            "chunk_id": "C02",
+            "title": "Technical Skills",
+            "metadata": {
+              "section": "Technical Skills"
+            }
+          },
+          {
+            "chunk_id": "C03",
+            "title": "Experience-1",
+            "metadata": {
+              "section": "Experience",
+              "part": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "T15",
+      "query": "What CI/CD tools has Apurva used?",
+      "ground_truth": "Jenkins, Docker, GitHub Actions, Packer",
+      "prompt_only": {
+        "answer": "Apurva has used Jenkins and GitHub Actions as CI/CD tools.",
+        "judgment": {
+          "correct": false,
+          "hallucinated": false,
+          "rationale": "The answer is incorrect because it omits Docker and Packer, which are part of the ground truth. It does not contain any hallucinated information."
+        }
+      },
+      "rag": {
+        "answer": "Apurva has used GitHub Actions, Jenkins, and Docker for CI/CD.",
+        "judgment": {
+          "correct": false,
+          "hallucinated": false,
+          "rationale": "The answer is partially correct as it mentions GitHub Actions, Jenkins, and Docker, which are included in the ground truth. However, it omits Packer, which is also part of the ground truth, making the answer incomplete."
+        },
+        "retrieved_chunks": [
+          {
+            "chunk_id": "C08",
+            "title": "Projects-2",
+            "metadata": {
+              "section": "Projects",
+              "part": 2
+            }
+          },
+          {
+            "chunk_id": "C05",
+            "title": "Experience-3",
+            "metadata": {
+              "section": "Experience",
+              "part": 3
+            }
+          },
+          {
+            "chunk_id": "C04",
+            "title": "Experience-2",
+            "metadata": {
+              "section": "Experience",
+              "part": 2
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "T16",
+      "query": "What backend frameworks does Apurva know?",
+      "ground_truth": "Node.js, SpringBoot, ExpressJS, Django",
+      "prompt_only": {
+        "answer": "Apurva knows the following backend frameworks: Spring Boot, Node.js, and Django.",
+        "judgment": {
+          "correct": false,
+          "hallucinated": false,
+          "rationale": "The answer is missing 'ExpressJS', which is part of the ground truth. However, it does not include any unsupported facts or unrelated information."
+        }
+      },
+      "rag": {
+        "answer": "Apurva knows the following backend frameworks: Node.js, Express.js, Spring Boot, and Django.",
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer correctly lists the backend frameworks that Apurva knows, matching the ground truth provided."
+        },
+        "retrieved_chunks": [
+          {
+            "chunk_id": "C02",
+            "title": "Technical Skills",
+            "metadata": {
+              "section": "Technical Skills"
+            }
+          },
+          {
+            "chunk_id": "C07",
+            "title": "Projects-1",
+            "metadata": {
+              "section": "Projects",
+              "part": 1
+            }
+          },
+          {
+            "chunk_id": "C03",
+            "title": "Experience-1",
+            "metadata": {
+              "section": "Experience",
+              "part": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "T18",
+      "query": "What did Apurva build at Admins?",
+      "ground_truth": "A responsive React + TypeScript frontend and secure Node.js + PostgreSQL APIs, achieving 2x faster rendering and 10,000+ requests/day",
+      "prompt_only": {
+        "answer": "At Admins, Apurva redesigned a responsive React + TypeScript frontend and built secure Node.js + PostgreSQL APIs, delivering 2x faster rendering, 10,000+ requests/day, and 1.5x lower latency.",
+        "judgment": {
+          "correct": false,
+          "hallucinated": true,
+          "rationale": "The answer includes the fabricated detail of '1.5x lower latency,' which is not present in the ground truth."
+        }
+      },
+      "rag": {
+        "answer": "Apurva redesigned a responsive React + TypeScript frontend and built secure Node.js + PostgreSQL APIs at Admins.",
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer accurately reflects the ground truth by stating that Apurva built a responsive React + TypeScript frontend and secure Node.js + PostgreSQL APIs at Admins, which aligns with the provided details."
+        },
+        "retrieved_chunks": [
+          {
+            "chunk_id": "C03",
+            "title": "Experience-1",
+            "metadata": {
+              "section": "Experience",
+              "part": 1
+            }
+          },
+          {
+            "chunk_id": "C07",
+            "title": "Projects-1",
+            "metadata": {
+              "section": "Projects",
+              "part": 1
+            }
+          },
+          {
+            "chunk_id": "C06",
+            "title": "Experience-4",
+            "metadata": {
+              "section": "Experience",
+              "part": 4
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "T02",
+      "query": "What is Apurva's GPA in his master's program?",
+      "ground_truth": "3.7 out of 4.0",
+      "prompt_only": {
+        "answer": "Apurva's GPA in his master's program is 3.7/4.",
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer provided matches the ground truth exactly, confirming that it is correct and not hallucinated."
+        }
+      },
+      "rag": {
+        "answer": "Apurva's GPA in his master's program is 3.7/4.",
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer provided matches the ground truth regarding Apurva's GPA in his master's program."
+        },
+        "retrieved_chunks": [
+          {
+            "chunk_id": "C01",
+            "title": "Education",
+            "metadata": {
+              "section": "Education"
+            }
+          },
+          {
+            "chunk_id": "C04",
+            "title": "Experience-2",
+            "metadata": {
+              "section": "Experience",
+              "part": 2
+            }
+          },
+          {
+            "chunk_id": "C05",
+            "title": "Experience-3",
+            "metadata": {
+              "section": "Experience",
+              "part": 3
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "T08",
+      "query": "Does Apurva have experience with Python?",
+      "ground_truth": "Yes, Python is listed under Languages in the Technical Skills section",
+      "prompt_only": {
+        "answer": "Yes, Apurva has experience with Python, as indicated in the technical skills section of the resume.",
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer correctly confirms that Apurva has experience with Python, which is supported by the ground truth stating that Python is listed in the Technical Skills section."
+        }
+      },
+      "rag": {
+        "answer": "Yes, Apurva has experience with Python, as indicated by the automation of Jira reporting using a Python script.",
+        "judgment": {
+          "correct": false,
+          "hallucinated": true,
+          "rationale": "The answer includes unsupported facts about automating Jira reporting with a Python script, which is not mentioned in the ground truth."
+        },
+        "retrieved_chunks": [
+          {
+            "chunk_id": "C02",
+            "title": "Technical Skills",
+            "metadata": {
+              "section": "Technical Skills"
+            }
+          },
+          {
+            "chunk_id": "C05",
+            "title": "Experience-3",
+            "metadata": {
+              "section": "Experience",
+              "part": 3
+            }
+          },
+          {
+            "chunk_id": "C03",
+            "title": "Experience-1",
+            "metadata": {
+              "section": "Experience",
+              "part": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "A01",
+      "query": "What is Apurva's current salary?",
+      "ground_truth": "NOT_IN_DOCUMENT",
+      "prompt_only": {
+        "answer": "This information is not available in the provided resume.",
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer correctly states that the information is not available in the provided resume, aligning with the ground truth of NOT_IN_DOCUMENT."
+        }
+      },
+      "rag": {
+        "answer": "This information is not available in the provided resume.",
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer correctly states that the information is not available in the provided resume, which aligns with the ground truth of NOT_IN_DOCUMENT."
+        },
+        "retrieved_chunks": [
+          {
+            "chunk_id": "C01",
+            "title": "Education",
+            "metadata": {
+              "section": "Education"
+            }
+          },
+          {
+            "chunk_id": "C03",
+            "title": "Experience-1",
+            "metadata": {
+              "section": "Experience",
+              "part": 1
+            }
+          },
+          {
+            "chunk_id": "C04",
+            "title": "Experience-2",
+            "metadata": {
+              "section": "Experience",
+              "part": 2
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "metadata": {
+    "model": "gpt-4o-mini",
+    "judge_model": "gpt-4o-mini",
+    "embedding_model": "text-embedding-3-small",
+    "chunk_count": 8,
+    "fine_tune_files": {
+      "train": {
+        "path": "step3_finetune_train.jsonl",
+        "count": 31
+      },
+      "dev": {
+        "path": "step3_finetune_dev.jsonl",
+        "count": 6
+      }
+    }
+  }
+}

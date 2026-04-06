@@ -1,0 +1,15 @@
+{
+  "feature_enhancements": [
+    "Removed the hardcoded API key and switched to environment-based configuration.",
+    "Replaced dummy documents with resume-aware section chunking.",
+    "Added an offline extractive fallback so the pipeline can run without API access.",
+    "Added detailed per-question output with rewritten query, retrieved chunks, and grounding status."
+  ],
+  "automated_smoke_tests": {
+    "total": 4,
+    "answered": 3,
+    "grounded": 4,
+    "not_found": 1,
+    "average_retrieved_chunks": 4.0
+  }
+}

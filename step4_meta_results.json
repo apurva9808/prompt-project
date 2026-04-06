@@ -1,0 +1,234 @@
+{
+  "metadata": {
+    "model": "gpt-4o-mini",
+    "meta_model": "gpt-4o-mini",
+    "judge_model": "gpt-4o-mini",
+    "document": "resume.pdf",
+    "test_items": 8
+  },
+  "baseline_prompt": "You are a resume Q&A assistant. Answer ONLY from the provided resume. If the information is missing, say: 'This information is not available in the provided resume.'",
+  "meta_prompt": "You are an expert prompt engineer for a Retrieval-Augmented Generation and document-question-answering system.\n\nYour task is to critique and improve the following system prompt for answering questions about a candidate resume.\n\nGoals:\n1. Maximize factual accuracy.\n2. Minimize hallucinations.\n3. Improve robustness to paraphrased questions.\n4. Ensure graceful abstention when the answer is not in the document.\n5. Keep answers concise and professional.\n\nCurrent system prompt:\n---\nYou are a resume Q&A assistant. Answer ONLY from the provided resume. If the information is missing, say: 'This information is not available in the provided resume.'\n---\n\nDocument type: resume / CV\nDomain: education, technical skills, work experience, projects\n\nReturn valid JSON with exactly these keys:\n- critique: short paragraph\n- improved_prompt: the fully rewritten system prompt only\n- rationale: short paragraph explaining why the new prompt is better\n",
+  "meta_output": {
+    "critique": "The current prompt is straightforward but lacks specificity in guiding the assistant on how to handle various question types and nuances in language. It does not explicitly instruct the assistant to prioritize factual accuracy or to handle paraphrased questions effectively. Additionally, it could benefit from a more structured approach to ensure that answers are concise and professional while maintaining a clear protocol for abstaining from speculation or providing incomplete information.",
+    "improved_prompt": "You are a resume Q&A assistant. Your task is to answer questions based solely on the provided resume, focusing on the domains of education, technical skills, work experience, and projects. Ensure that your answers are factually accurate, concise, and professional. If the information is not available in the resume, respond with: 'This information is not available in the provided resume.' Additionally, be prepared to interpret paraphrased questions and provide clear, relevant answers without speculation.",
+    "rationale": "The improved prompt enhances clarity by specifying the domains of focus and emphasizing the importance of factual accuracy and professionalism. It also explicitly instructs the assistant to handle paraphrased questions, which increases robustness. By reiterating the protocol for abstaining from speculation, the prompt ensures that the assistant maintains integrity in its responses, ultimately leading to a more reliable and user-friendly experience."
+  },
+  "before": {
+    "summary": {
+      "accuracy": 62.5,
+      "hallucination_rate": 12.5,
+      "consistency": 62.5,
+      "average_perplexity": 1.024,
+      "correct_count": 5,
+      "hallucinated_count": 1,
+      "total": 8
+    },
+    "details": [
+      {
+        "id": "T07",
+        "query": "Which programming languages does Apurva know?",
+        "ground_truth": "Java, Python, JavaScript, TypeScript, HTML/CSS, SCSS",
+        "answer": "Apurva knows the following programming languages: Java, Python, JavaScript, Typescript, HTML/CSS, and SCSS.",
+        "perplexity": 1.018399358523691,
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer accurately lists the programming languages known by Apurva as per the ground truth."
+        }
+      },
+      {
+        "id": "T09",
+        "query": "What frontend frameworks does Apurva know?",
+        "ground_truth": "ReactJS and React-Native",
+        "answer": "Apurva knows the following frontend frameworks: ReactJS and React-Native.",
+        "perplexity": 1.027127803450669,
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer accurately reflects the ground truth provided, listing the correct frontend frameworks that Apurva knows."
+        }
+      },
+      {
+        "id": "T15",
+        "query": "What CI/CD tools has Apurva used?",
+        "ground_truth": "Jenkins, Docker, GitHub Actions, Packer",
+        "answer": "Apurva has used Jenkins and GitHub Actions as CI/CD tools.",
+        "perplexity": 1.0405520134405724,
+        "judgment": {
+          "correct": false,
+          "hallucinated": false,
+          "rationale": "The answer is partially correct as it mentions Jenkins and GitHub Actions, but it omits Docker and Packer, which are also part of the ground truth."
+        }
+      },
+      {
+        "id": "T16",
+        "query": "What backend frameworks does Apurva know?",
+        "ground_truth": "Node.js, SpringBoot, ExpressJS, Django",
+        "answer": "Apurva knows the following backend frameworks: Spring Boot, Node.js, and Django.",
+        "perplexity": 1.0142708874334798,
+        "judgment": {
+          "correct": false,
+          "hallucinated": false,
+          "rationale": "The answer is incorrect because it omits ExpressJS, which is part of the ground truth."
+        }
+      },
+      {
+        "id": "T18",
+        "query": "What did Apurva build at Admins?",
+        "ground_truth": "A responsive React + TypeScript frontend and secure Node.js + PostgreSQL APIs, achieving 2x faster rendering and 10,000+ requests/day",
+        "answer": "At Admins, Apurva redesigned a responsive React + TypeScript frontend and built secure Node.js + PostgreSQL APIs, delivering 2x faster rendering, 10,000+ requests/day, and 1.5x lower latency.",
+        "perplexity": 1.0155321691839683,
+        "judgment": {
+          "correct": false,
+          "hallucinated": true,
+          "rationale": "The answer includes the fabricated detail of '1.5x lower latency,' which is not present in the ground truth."
+        }
+      },
+      {
+        "id": "T02",
+        "query": "What is Apurva's GPA in his master's program?",
+        "ground_truth": "3.7 out of 4.0",
+        "answer": "Apurva's GPA in his master's program is 3.7/4.",
+        "perplexity": 1.0001013559963359,
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer correctly states Apurva's GPA as 3.7 out of 4.0, which matches the ground truth."
+        }
+      },
+      {
+        "id": "T08",
+        "query": "Does Apurva have experience with Python?",
+        "ground_truth": "Yes, Python is listed under Languages in the Technical Skills section",
+        "answer": "Yes, Apurva has experience with Python, as indicated in the technical skills section of the resume.",
+        "perplexity": 1.0769286826182167,
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer accurately reflects the information provided in the ground truth, confirming Apurva's experience with Python as listed in the technical skills section."
+        }
+      },
+      {
+        "id": "A01",
+        "query": "What is Apurva's current salary?",
+        "ground_truth": "NOT_IN_DOCUMENT",
+        "answer": "This information is not available in the provided resume.",
+        "perplexity": 1.0000000938449007,
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer correctly states that the information is not available in the provided resume, which aligns with the ground truth of NOT_IN_DOCUMENT."
+        }
+      }
+    ]
+  },
+  "after": {
+    "summary": {
+      "accuracy": 50.0,
+      "hallucination_rate": 25.0,
+      "consistency": 50.0,
+      "average_perplexity": 1.04,
+      "correct_count": 4,
+      "hallucinated_count": 2,
+      "total": 8
+    },
+    "details": [
+      {
+        "id": "T07",
+        "query": "Which programming languages does Apurva know?",
+        "ground_truth": "Java, Python, JavaScript, TypeScript, HTML/CSS, SCSS",
+        "answer": "Apurva knows the following programming languages: Java, Python, JavaScript, TypeScript, HTML/CSS, and SCSS.",
+        "perplexity": 1.0141702662598604,
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer accurately lists the programming languages that Apurva knows, matching the ground truth provided."
+        }
+      },
+      {
+        "id": "T09",
+        "query": "What frontend frameworks does Apurva know?",
+        "ground_truth": "ReactJS and React-Native",
+        "answer": "Apurva knows the following frontend frameworks: ReactJS and React-Native.",
+        "perplexity": 1.036885031387902,
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer accurately reflects the ground truth provided, listing the correct frontend frameworks that Apurva knows."
+        }
+      },
+      {
+        "id": "T15",
+        "query": "What CI/CD tools has Apurva used?",
+        "ground_truth": "Jenkins, Docker, GitHub Actions, Packer",
+        "answer": "Apurva has used Jenkins and GitHub Actions as CI/CD tools.",
+        "perplexity": 1.0258805839247667,
+        "judgment": {
+          "correct": false,
+          "hallucinated": false,
+          "rationale": "The answer is incorrect because it omits Docker and Packer, which are part of the ground truth. It does not contain any hallucinated information."
+        }
+      },
+      {
+        "id": "T16",
+        "query": "What backend frameworks does Apurva know?",
+        "ground_truth": "Node.js, SpringBoot, ExpressJS, Django",
+        "answer": "Apurva is proficient in the following backend frameworks: Spring Boot, Node.js, and Django.",
+        "perplexity": 1.0712779670977706,
+        "judgment": {
+          "correct": false,
+          "hallucinated": false,
+          "rationale": "The answer is incorrect because it omits 'ExpressJS' from the list of backend frameworks that Apurva knows, which is part of the ground truth."
+        }
+      },
+      {
+        "id": "T18",
+        "query": "What did Apurva build at Admins?",
+        "ground_truth": "A responsive React + TypeScript frontend and secure Node.js + PostgreSQL APIs, achieving 2x faster rendering and 10,000+ requests/day",
+        "answer": "At Admins, Apurva redesigned a responsive React + TypeScript frontend and built secure Node.js + PostgreSQL APIs, delivering 2x faster rendering, handling over 10,000 requests per day, and achieving 1.5x lower latency.",
+        "perplexity": 1.0257548933301053,
+        "judgment": {
+          "correct": false,
+          "hallucinated": true,
+          "rationale": "The answer includes a fabricated detail about achieving '1.5x lower latency,' which is not present in the ground truth. Additionally, the phrasing 'redesigned' implies a different action than 'built,' which could lead to misinterpretation."
+        }
+      },
+      {
+        "id": "T02",
+        "query": "What is Apurva's GPA in his master's program?",
+        "ground_truth": "3.7 out of 4.0",
+        "answer": "Apurva's GPA in his master's program is 3.7/4.",
+        "perplexity": 1.0005535932232803,
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer correctly states Apurva's GPA as 3.7/4, which matches the ground truth."
+        }
+      },
+      {
+        "id": "T08",
+        "query": "Does Apurva have experience with Python?",
+        "ground_truth": "Yes, Python is listed under Languages in the Technical Skills section",
+        "answer": "Yes, Apurva has experience with Python, as it is listed among the technical skills in the resume. Additionally, Python was used in the automation of Jira reporting at Daimler Truck Innovation Centre India.",
+        "perplexity": 1.1464291446990071,
+        "judgment": {
+          "correct": false,
+          "hallucinated": true,
+          "rationale": "The answer correctly states that Apurva has experience with Python, but it includes additional information about using Python for automation of Jira reporting at Daimler Truck Innovation Centre India, which is not supported by the ground truth."
+        }
+      },
+      {
+        "id": "A01",
+        "query": "What is Apurva's current salary?",
+        "ground_truth": "NOT_IN_DOCUMENT",
+        "answer": "This information is not available in the provided resume.",
+        "perplexity": 1.0000001132061676,
+        "judgment": {
+          "correct": true,
+          "hallucinated": false,
+          "rationale": "The answer correctly states that the information is not available in the provided resume, aligning with the ground truth of NOT_IN_DOCUMENT."
+        }
+      }
+    ]
+  }
+}
