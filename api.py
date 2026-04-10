@@ -45,6 +45,7 @@ DEV_JSONL_PATH = APP_DIR / "step3_finetune_dev.jsonl"
 
 CURRENT_UPLOADED_RESUME_TEXT = ""
 CURRENT_UPLOADED_RESUME_SOURCE = ""
+COVER_LETTER_COVERAGE_TARGET = 85.0
 
 
 # ============================================================================
@@ -80,6 +81,41 @@ class DatasetItem(BaseModel):
 class EvaluateUploadedRequest(BaseModel):
     split: str = "test"
     max_items: int | None = None
+
+
+class SkillGapAnalyzerRequest(BaseModel):
+    resume_text: str
+    job_description: str
+
+
+class SkillAnalysis(BaseModel):
+    resume_skills: list[str]
+    job_skills: list[str]
+    matched_skills: list[str]
+    missing_skills: list[str]
+    recommendations: list[str]
+
+
+class CoverLetterRequest(BaseModel):
+    resume_text: str
+    job_description: str
+    company_name: str | None = None
+    role_title: str | None = None
+    tone: str = "professional"
+
+
+class CoverLetterResponse(BaseModel):
+    cover_letter: str
+    company_name: str
+    role_title: str
+    tone: str
+    source: str
+    job_skills: list[str]
+    matched_job_skills: list[str]
+    uncovered_job_skills: list[str]
+    covered_responsibilities: list[str]
+    uncovered_responsibilities: list[str]
+    coverage_score: float
 
 
 # ============================================================================
@@ -260,6 +296,809 @@ def _evaluate_correctness(item: dict[str, Any], answer: str) -> bool:
         return False
     overlap_ratio = len(gt_tokens & ans_tokens) / len(gt_tokens)
     return overlap_ratio >= 0.4
+
+
+# ============================================================================
+# Skill Gap Analyzer Helper Functions
+# ============================================================================
+
+COMMON_TECHNICAL_SKILLS = {
+    # Programming Languages
+    "python", "java", "javascript", "typescript", "c++", "c#", "go", "rust", "kotlin", "swift",
+    "php", "ruby", "scala", "r", "matlab", "sql", "html", "css", "bash", "shell",
+
+    # Web Frameworks
+    "react", "vue", "angular", "django", "flask", "fastapi", "spring", "springboot",
+    "nodejs", "express", "nextjs", "vue.js", "laravel", "asp.net",
+
+    # Databases
+    "mysql", "postgresql", "mongodb", "redis", "elasticsearch", "cassandra", "dynamodb",
+    "firestore", "aurora", "oracle", "sqlserver", "sqlite",
+
+    # DevOps & Cloud
+    "docker", "kubernetes", "jenkins", "gitlab", "github", "circleci", "aws", "azure",
+    "gcp", "kubernetes", "terraform", "ansible", "ci/cd", "devops", "microservices",
+    "airflow", "distributed systems", "etl", "elt",
+
+    # Data & ML
+    "tensorflow", "pytorch", "scikit-learn", "pandas", "numpy", "spark", "kafka",
+    "hadoop", "machine learning", "deep learning", "nlp", "computer vision", "llm",
+    "data engineering", "data pipelines", "data infrastructure", "observability", "data quality",
+    "data governance", "trading", "financial services", "risk systems",
+
+    # Tools & Technologies
+    "git", "linux", "windows", "macos", "jira", "confluence", "slack", "agile",
+    "scrum", "rest", "graphql", "grpc", "soap", "websocket", "api", "microservices",
+
+    # Data & Analytics
+    "tableau", "powerbi", "looker", "metabase", "analytics", "bigquery", "snowflake",
+    "redshift", "data warehouse", "etl",
+
+    # Soft Skills
+    "communication", "leadership", "teamwork", "problem solving", "critical thinking",
+    "project management", "time management", "adaptability", "creativity"
+}
+
+SKILL_KEYWORDS_MAPPING = {
+    "containerization": ["docker", "kubernetes", "container"],
+    "ci/cd": ["ci", "cd", "continuous integration", "continuous deployment", "jenkins", "gitlab", "github actions"],
+    "cache": ["redis", "caching", "memcached"],
+    "frontend": ["react", "vue", "angular", "html", "css", "javascript", "typescript", "ui", "ux"],
+    "backend": ["django", "flask", "fastapi", "spring", "nodejs", "python", "java"],
+    "cloud": ["aws", "azure", "gcp", "cloud"],
+    "security": ["security", "oauth", "jwt", "encryption", "ssl", "tls"],
+}
+
+def _extract_skills(text: str) -> list[str]:
+    """Extract skills from resume or job description text."""
+    text_lower = text.lower()
+    
+    # Look for common skills
+    found_skills = set()
+    for skill in COMMON_TECHNICAL_SKILLS:
+        # Look for exact matches or matches with word boundaries
+        patterns = [
+            re.escape(skill) + r"(?:\s|,|;|$|\.)",
+            r"(?:^|\s|,)" + re.escape(skill) + r"(?:\s|,|;|$|\.)",
+        ]
+        for pattern in patterns:
+            if re.search(pattern, text_lower, re.IGNORECASE):
+                found_skills.add(skill)
+                break
+    
+    # Also look for skills mentioned with keywords like "Languages:", "Skills:", etc.
+    skill_sections = re.findall(
+        r"(?:skills?|languages?|technologies?|tools?|experience with)[:\s]+([^\n.]+?)(?=\n|$|skills?|languages?|technologies?|tools?|experience)",
+        text_lower,
+        re.IGNORECASE | re.DOTALL
+    )
+    
+    for section in skill_sections:
+        # Split by common delimiters
+        items = re.split(r"[,;•\/-]|and", section)
+        for item in items:
+            item = item.strip()
+            # Check if any known skill is mentioned
+            for skill in COMMON_TECHNICAL_SKILLS:
+                if skill in item:
+                    found_skills.add(skill)
+    
+    return sorted(list(found_skills))
+
+
+def _analyze_skill_gap(resume_skills: list[str], job_skills: list[str]) -> tuple[list[str], list[str]]:
+    """Analyze skill gaps between resume and job requirements."""
+    resume_set = set(resume_skills)
+    job_set = set(job_skills)
+    
+    matched = sorted(list(resume_set & job_set))
+    missing = sorted(list(job_set - resume_set))
+    
+    return matched, missing
+
+
+def _generate_recommendations(missing_skills: list[str]) -> list[str]:
+    """Generate recommendations based on missing skills."""
+    recommendations = []
+    
+    if not missing_skills:
+        recommendations.append("✅ Excellent! Your skills closely match the job requirements.")
+        return recommendations
+    
+    # Group missing skills by category
+    categories_present = {}
+    for skill in missing_skills:
+        for category, keywords in SKILL_KEYWORDS_MAPPING.items():
+            if any(kw in skill.lower() for kw in keywords):
+                if category not in categories_present:
+                    categories_present[category] = []
+                categories_present[category].append(skill)
+    
+    # Generate specific recommendations
+    if "containerization" in categories_present:
+        recommendations.append(
+            "🐳 **Containerization:** Learn Docker and Kubernetes for modern deployment practices. "
+            "Build and deploy containerized applications to gain practical experience."
+        )
+    
+    if "ci/cd" in categories_present:
+        recommendations.append(
+            "🔄 **CI/CD:** Set up automated testing and deployment pipelines. "
+            "Explore tools like Jenkins, GitHub Actions, or GitLab CI to automate your workflows."
+        )
+    
+    if "cloud" in categories_present:
+        cloud_skills = categories_present["cloud"]
+        recommendations.append(
+            f"☁️ **Cloud Platforms:** Get familiar with AWS, Azure, or GCP. "
+            "Start with free tier accounts and build projects to gain practical cloud experience."
+        )
+    
+    if "frontend" in categories_present:
+        recommendations.append(
+            "🎨 **Frontend:** Deepen your skills in React, Vue, or Angular. "
+            "Build interactive web applications to showcase your front-end expertise."
+        )
+    
+    if "backend" in categories_present:
+        recommendations.append(
+            "⚙️ **Backend:** Master backend frameworks like Django, Flask, FastAPI, or Spring. "
+            "Build RESTful APIs and microservices for hands-on experience."
+        )
+    
+    if "security" in categories_present:
+        recommendations.append(
+            "🔒 **Security:** Learn about authentication, encryption, and secure coding practices. "
+            "Implement OAuth, JWT tokens, and SSL/TLS in your projects."
+        )
+    
+    if not recommendations:
+        # Generic recommendations for missing skills
+        recommendations.append(
+            f"📚 **Skill Development:** You're missing {len(missing_skills)} skills. "
+            f"Consider learning: {', '.join(missing_skills[:5])}{'...' if len(missing_skills) > 5 else ''}."
+        )
+    
+    recommendations.append(
+        "💡 **Project-Based Learning:** Build real-world projects that incorporate these skills. "
+        "Document your projects on GitHub to demonstrate practical expertise."
+    )
+    
+    return recommendations
+
+
+def _extract_role_title(job_description: str) -> str:
+    """Best-effort role title extraction from a job description."""
+    first_lines = [line.strip() for line in job_description.splitlines() if line.strip()][:8]
+    patterns = [
+        r"job title\s*[:\-]\s*(.+)",
+        r"position\s*[:\-]\s*(.+)",
+        r"role\s*[:\-]\s*(.+)",
+        r"hiring for\s+(.+)",
+    ]
+
+    for line in first_lines:
+        if line.lower() in {"about the job", "about", "job description"}:
+            continue
+        for pattern in patterns:
+            match = re.search(pattern, line, re.IGNORECASE)
+            if match:
+                value = match.group(1).strip(" .:-")
+                return value.split("|")[0].strip()
+
+    for line in first_lines:
+        if line.lower() in {"about the job", "about", "job description"}:
+            continue
+        if 3 <= len(line.split()) <= 8 and any(char.isalpha() for char in line):
+            return line.split("|")[0].strip(" .:-")
+
+    return "the role"
+
+
+def _extract_company_name(job_description: str) -> str:
+    """Best-effort company extraction from a job description."""
+    patterns = [
+        r"company\s*[:\-]\s*(.+)",
+        r"at\s+([A-Z][A-Za-z0-9&.,' -]{2,})",
+        r"join\s+([A-Z][A-Za-z0-9&.,' -]{2,})",
+    ]
+
+    for line in [line.strip() for line in job_description.splitlines() if line.strip()][:12]:
+        for pattern in patterns:
+            match = re.search(pattern, line)
+            if match:
+                return match.group(1).strip(" .:-")
+
+    return "your team"
+
+
+def _is_resume_noise_line(text: str) -> bool:
+    """Detect resume fragments that should not appear verbatim in cover letters."""
+    normalized = re.sub(r"\s+", " ", text).strip()
+    lower = normalized.lower()
+    if not normalized:
+        return True
+    if len(normalized.split()) < 6:
+        return True
+    if any(marker in lower for marker in ["technical skills", "languages:", "frameworks:", "technologies:", "database:", "dev tools:", "others:"]):
+        return True
+    if any(marker in normalized for marker in ["|", "@", "linkedin.com", "github.com", "http://", "https://"]):
+        return True
+    if normalized.count(",") >= 6:
+        return True
+    if normalized.isupper():
+        return True
+    return False
+
+
+def _resume_highlights_for_cover_letter(resume_text: str, job_description: str) -> list[str]:
+    """Retrieve resume sections most relevant to the job description."""
+    chunks = _retrieve_resume_chunks(job_description, resume_text)
+    highlights: list[str] = []
+
+    for chunk in chunks:
+        for line in chunk.splitlines():
+            cleaned = re.sub(r"^[\-•*\d.)\s]+", "", re.sub(r"\s+", " ", line)).strip()
+            if _is_resume_noise_line(cleaned):
+                continue
+            if cleaned.endswith(":"):
+                continue
+            if cleaned and cleaned not in highlights:
+                highlights.append(cleaned)
+        if len(highlights) >= 3:
+            break
+
+    if not highlights:
+        for sentence in re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", resume_text)):
+            cleaned = sentence.strip()
+            if _is_resume_noise_line(cleaned):
+                continue
+            if cleaned not in highlights:
+                highlights.append(cleaned)
+            if len(highlights) >= 3:
+                break
+
+    return highlights[:3]
+
+
+def _extract_job_section_lines(job_description: str, section_markers: list[str]) -> list[str]:
+    """Extract bullet-like lines from a job description section."""
+    lines = [line.strip() for line in job_description.splitlines()]
+    collected: list[str] = []
+    capture = False
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        lower = line.lower()
+
+        if any(marker in lower for marker in section_markers):
+            capture = True
+            continue
+
+        if capture and not line:
+            if collected:
+                break
+            continue
+
+        if capture and line.endswith(":") and not any(marker in lower for marker in section_markers):
+            break
+
+        if capture:
+            cleaned = re.sub(r"^[\-•*\d.\)\s]+", "", line).strip()
+            if cleaned:
+                collected.append(cleaned)
+
+    return collected[:4]
+
+
+def _extract_job_focus(job_description: str) -> tuple[list[str], list[str]]:
+    """Extract primary responsibilities and requirements from the job description."""
+    responsibilities = _extract_job_section_lines(
+        job_description,
+        ["what you'll be doing", "responsibilities", "what you will be doing"],
+    )
+    requirements = _extract_job_section_lines(
+        job_description,
+        ["what they're looking for", "requirements", "what we are looking for", "qualifications"],
+    )
+
+    if not responsibilities:
+        responsibilities = [
+            line.strip()
+            for line in re.split(r"(?<=[.!?])\s+|\n+", job_description)
+            if line.strip() and len(line.strip().split()) > 5
+        ][:2]
+
+    if not requirements:
+        requirements = [
+            skill for skill in _extract_skills(job_description)[:5]
+        ]
+
+    return responsibilities[:3], requirements[:5]
+
+
+def _get_cover_letter_skill_alignment(job_description: str, resume_text: str) -> tuple[list[str], list[str], list[str]]:
+    """Return all extracted JD skills plus matched and missing subsets."""
+    job_skills = _extract_skills(job_description)
+    resume_skills = _extract_skills(resume_text)
+    matched_skills = [skill for skill in job_skills if skill in resume_skills]
+    missing_skills = [skill for skill in job_skills if skill not in resume_skills]
+    return job_skills, matched_skills, missing_skills
+
+
+def _format_list_phrase(items: list[str]) -> str:
+    """Format a short list for prose."""
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} and {items[1]}"
+    return ", ".join(items[:-1]) + f", and {items[-1]}"
+
+
+def _extract_candidate_name(resume_text: str) -> str:
+    """Extract candidate name from resume header lines when possible."""
+    lines = [line.strip() for line in resume_text.splitlines() if line.strip()]
+    for line in lines[:8]:
+        # Skip typical contact/detail lines.
+        if any(marker in line for marker in ["@", "|", "http", "www."]):
+            continue
+        if re.search(r"\d", line):
+            continue
+        if ":" in line:
+            continue
+        if len(line) > 60:
+            continue
+
+        tokens = line.split()
+        if 2 <= len(tokens) <= 5 and all(re.fullmatch(r"[A-Za-z][A-Za-z'\-]*", token) for token in tokens):
+            return line
+    return "Candidate"
+
+
+def _ensure_named_signature(cover_letter: str, candidate_name: str) -> str:
+    """Ensure the cover letter ends with a named signature line."""
+    signature_name = candidate_name.strip() or "Candidate"
+    text = cover_letter.strip()
+
+    # Replace generic placeholder signature if present.
+    text = re.sub(
+        r"(\n\n(?:Sincerely,|Best regards,)\n)\s*Candidate\s*$",
+        rf"\1{signature_name}",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # If a sign-off exists but no name line follows, append the extracted name.
+    if re.search(r"\n\n(?:Sincerely,|Best regards,)\s*$", text, flags=re.IGNORECASE):
+        return text + f"\n{signature_name}"
+
+    # If no sign-off exists, add one.
+    if not re.search(r"(?:Sincerely,|Best regards,)", text, flags=re.IGNORECASE):
+        text = text + f"\n\nSincerely,\n{signature_name}"
+
+    # Keep the signature block as the final content and drop any trailing dump.
+    signoff_match = re.search(r"\n\n(Sincerely,|Best regards,)\n([^\n]+)", text, flags=re.IGNORECASE)
+    if signoff_match:
+        text = text[:signoff_match.start()] + f"\n\n{signoff_match.group(1)}\n{signature_name}"
+
+    return text
+
+
+def _normalize_phrase(text: str) -> str:
+    """Normalize text for lightweight matching."""
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9+]+", " ", text.lower())).strip()
+
+
+def _covers_requirement(text: str, requirement: str) -> bool:
+    """Check whether a cover letter explicitly references a requirement."""
+    normalized_text = _normalize_phrase(text)
+    normalized_requirement = _normalize_phrase(requirement)
+    if not normalized_requirement:
+        return False
+    if normalized_requirement in normalized_text:
+        return True
+
+    requirement_tokens = [token for token in normalized_requirement.split() if len(token) > 2]
+    if not requirement_tokens:
+        return False
+
+    matched_tokens = [token for token in requirement_tokens if token in normalized_text]
+    threshold = max(1, min(len(requirement_tokens), 2))
+    return len(matched_tokens) >= threshold
+
+
+def _assess_cover_letter_alignment(
+    cover_letter: str,
+    job_skills: list[str],
+    responsibilities: list[str],
+) -> tuple[list[str], list[str], list[str], list[str], float]:
+    """Assess whether the cover letter covers job skills and responsibilities."""
+    covered_skills = [skill for skill in job_skills if _covers_requirement(cover_letter, skill)]
+    uncovered_skills = [skill for skill in job_skills if skill not in covered_skills]
+    covered_responsibilities = [item for item in responsibilities if _covers_requirement(cover_letter, item)]
+    uncovered_responsibilities = [item for item in responsibilities if item not in covered_responsibilities]
+
+    total_items = len(job_skills) + len(responsibilities)
+    covered_items = len(covered_skills) + len(covered_responsibilities)
+    coverage_score = round((covered_items / total_items) * 100, 1) if total_items else 100.0
+    return covered_skills, uncovered_skills, covered_responsibilities, uncovered_responsibilities, coverage_score
+
+
+def _strip_placeholder_lines(cover_letter: str) -> str:
+    """Remove placeholder-heavy header lines from generated output."""
+    cleaned_lines: list[str] = []
+    started_body = False
+    for raw_line in cover_letter.splitlines():
+        line = raw_line.strip()
+        if not line:
+            if started_body:
+                cleaned_lines.append("")
+            continue
+        if re.search(r"\[[^\]]+\]", line):
+            continue
+        if re.search(r"@|\+?\d[\d\s()\-]{6,}", line):
+            continue
+        if line.lower().startswith("dear "):
+            started_body = True
+        if started_body:
+            cleaned_lines.append(line)
+
+    if cleaned_lines:
+        return "\n".join(cleaned_lines).strip()
+    return cover_letter.strip()
+
+
+def _is_generic_cover_letter(cover_letter: str, company_name: str, role_title: str) -> bool:
+    """Detect templated wording that makes letters feel non-specific."""
+    lower = cover_letter.lower()
+    generic_phrases = [
+        "your esteemed firm",
+        "as advertised",
+        "[hiring manager",
+        "[company",
+        "[date",
+        "to whom it may concern",
+    ]
+    if any(phrase in lower for phrase in generic_phrases):
+        return True
+
+    # Ensure the output references either company or role title explicitly.
+    if company_name and company_name.lower() not in lower and role_title.lower() not in lower:
+        return True
+
+    return False
+
+
+def _cleanup_cover_letter_text(cover_letter: str, company_name: str) -> str:
+    """Apply deterministic cleanup for common low-quality phrases."""
+    cleaned = cover_letter
+    replacements = {
+        "your esteemed firm": company_name,
+        "as advertised": "",
+        "I look forward to the possibility of": "I welcome the opportunity to",
+    }
+    for old, new in replacements.items():
+        cleaned = re.sub(re.escape(old), new, cleaned, flags=re.IGNORECASE)
+
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
+
+
+def _insert_before_signature(cover_letter: str, paragraph: str) -> str:
+    """Insert a paragraph before the signature block if one exists."""
+    split_markers = ["\n\nSincerely,", "\nSincerely,", "\n\nBest regards,", "\nBest regards,"]
+    for marker in split_markers:
+        if marker in cover_letter:
+            head, tail = cover_letter.split(marker, 1)
+            return head.rstrip() + "\n\n" + paragraph.strip() + marker + tail
+    return cover_letter.rstrip() + "\n\n" + paragraph.strip()
+
+
+def _repair_cover_letter_alignment(
+    cover_letter: str,
+    matched_skills: list[str],
+    missing_skills: list[str],
+    uncovered_skills: list[str],
+    uncovered_responsibilities: list[str],
+) -> str:
+    """Patch a draft so uncovered requirements are explicitly addressed."""
+    matched_uncovered = [skill for skill in uncovered_skills if skill in matched_skills]
+    growth_uncovered = [skill for skill in uncovered_skills if skill in missing_skills]
+    repair_parts: list[str] = []
+
+    if uncovered_responsibilities:
+        repair_parts.append(
+            "I am also drawn to the role's focus on "
+            f"{_format_list_phrase(uncovered_responsibilities[:3])}."
+        )
+
+    if matched_uncovered:
+        repair_parts.append(
+            "Relevant experience I can bring immediately includes "
+            f"{_format_list_phrase(matched_uncovered)}."
+        )
+
+    if growth_uncovered:
+        repair_parts.append(
+            "I also understand the importance of "
+            f"{_format_list_phrase(growth_uncovered)} in this position, and I would approach those areas with the same fast ramp-up and ownership mindset I have applied in prior technical work."
+        )
+
+    if not repair_parts:
+        return cover_letter
+
+    return _insert_before_signature(cover_letter, " ".join(repair_parts))
+
+
+def _revise_cover_letter_for_alignment(
+    cover_letter: str,
+    company_name: str,
+    role_title: str,
+    tone: str,
+    matched_skills: list[str],
+    missing_skills: list[str],
+    uncovered_skills: list[str],
+    uncovered_responsibilities: list[str],
+    rewrite_reasons: list[str],
+) -> str:
+    """Use the LLM to revise a weak draft so it covers missing JD points."""
+    if CLIENT is None or (not uncovered_skills and not uncovered_responsibilities and not rewrite_reasons):
+        return cover_letter
+
+    try:
+        response = CLIENT.chat.completions.create(
+            model=OPENAI_MODEL,
+            temperature=0.3,
+            max_tokens=750,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Revise the cover letter so it is specific to the job description. "
+                        "Do not use placeholders, address blocks, bracketed fields, or invented facts. "
+                        "Keep it to 3 or 4 short paragraphs and ensure all uncovered job skills and responsibilities are explicitly addressed. "
+                        "Skills supported by the resume must be framed as existing experience. Unsupported skills must be framed as areas the candidate is ready to deepen."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Role: {role_title}\n"
+                        f"Company: {company_name}\n"
+                        f"Tone: {tone}\n"
+                        f"Existing resume-supported skills: {json.dumps(matched_skills)}\n"
+                        f"Growth-area skills: {json.dumps(missing_skills)}\n"
+                        f"Uncovered skills that must be explicitly mentioned: {json.dumps(uncovered_skills)}\n"
+                        f"Uncovered responsibilities that must be explicitly mentioned: {json.dumps(uncovered_responsibilities)}\n\n"
+                        f"Rewrite reasons: {json.dumps(rewrite_reasons)}\n\n"
+                        f"Current draft:\n{cover_letter}"
+                    ),
+                },
+            ],
+        )
+        revised = response.choices[0].message.content.strip()
+        return revised or cover_letter
+    except Exception:
+        return cover_letter
+
+
+def _build_cover_letter_fallback(
+    resume_text: str,
+    job_description: str,
+    company_name: str,
+    role_title: str,
+    tone: str,
+    candidate_name: str,
+) -> str:
+    """Generate a deterministic cover letter when no LLM is available."""
+    highlights = _resume_highlights_for_cover_letter(resume_text, job_description)
+    job_skills, matched_skills, missing_skills = _get_cover_letter_skill_alignment(job_description, resume_text)
+    responsibilities, requirements = _extract_job_focus(job_description)
+
+    intro = (
+        f"Dear Hiring Manager,\n\n"
+        f"I am writing to express my interest in the {role_title} position at {company_name}. "
+        f"I am especially interested in this opportunity because of its focus on {_format_list_phrase(responsibilities[:2]) or 'high-impact data engineering work'}."
+    )
+
+    body_parts = []
+    if responsibilities:
+        body_parts.append(
+            "The role's emphasis on "
+            f"{_format_list_phrase(responsibilities[:3])} is particularly compelling to me."
+        )
+
+    if job_skills:
+        body_parts.append(
+            "Your posting highlights the importance of "
+            f"{_format_list_phrase(job_skills)}."
+        )
+
+    if matched_skills:
+        body_parts.append(
+            "My background includes skills that map directly to your requirements, including "
+            f"{_format_list_phrase(matched_skills)}."
+        )
+    if missing_skills:
+        body_parts.append(
+            "I also recognize the value of "
+            f"{_format_list_phrase(missing_skills)} in this role, and I would be ready to deepen that capability while contributing in a high-ownership environment."
+        )
+    elif requirements and not matched_skills:
+        body_parts.append(
+            "Your requirement for "
+            f"{_format_list_phrase(requirements[:4])} matches the kind of technical work I am motivated to contribute to and keep developing further."
+        )
+
+    for highlight in highlights[:2]:
+        body_parts.append(highlight)
+
+    if not body_parts:
+        body_parts.append(
+            "I have developed practical experience through coursework, projects, and professional work that I believe would allow me to add value quickly."
+        )
+
+    closing = (
+        f"\n\nI am excited about the opportunity to bring a {tone} and results-oriented approach to {company_name}. "
+        "Thank you for your time and consideration. I would welcome the chance to discuss how my background can support your team.\n\n"
+        "Sincerely,\n"
+        f"{candidate_name}"
+    )
+
+    return intro + "\n\n" + "\n\n".join(body_parts) + closing
+
+
+def _generate_cover_letter(
+    resume_text: str,
+    job_description: str,
+    company_name: str,
+    role_title: str,
+    tone: str,
+) -> tuple[str, str, list[str], list[str], list[str]]:
+    """Generate a cover letter with OpenAI when available, otherwise use a fallback."""
+    candidate_name = _extract_candidate_name(resume_text)
+    responsibilities, requirements = _extract_job_focus(job_description)
+    job_skills, matched_skills, missing_skills = _get_cover_letter_skill_alignment(job_description, resume_text)
+
+    if CLIENT is None:
+        cover_letter = _build_cover_letter_fallback(
+            resume_text,
+            job_description,
+            company_name,
+            role_title,
+            tone,
+            candidate_name,
+        )
+        source = "offline_fallback"
+    else:
+        source = "openai"
+        cover_letter = ""
+
+        try:
+            response = CLIENT.chat.completions.create(
+                model=OPENAI_MODEL,
+                temperature=0.35,
+                max_tokens=750,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You write concise, truthful cover letters grounded only in the candidate resume and the job description. "
+                            "Do not invent achievements, employers, dates, technologies, education, or domain experience. "
+                            "Do not include contact headers, addresses, placeholders, bracketed tokens, or a date block. Start with 'Dear Hiring Manager,'. "
+                            "Keep the letter to 3 or 4 short paragraphs. Explicitly reference the job description's stated responsibilities and requirements so the letter feels tailored. "
+                            "You must address all extracted job skills from the job description. If a skill is supported by the resume, present it as existing experience. "
+                            "If a skill is not supported by the resume, present it as an area the candidate is ready to deepen, without falsely claiming expertise. "
+                            "End with 'Sincerely,' followed by the candidate's name exactly as provided."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Write a {tone} cover letter for the role '{role_title}' at '{company_name}'.\n\n"
+                            f"Candidate name for signature: {candidate_name}\n"
+                            f"Responsibilities from the job description: {json.dumps(responsibilities)}\n"
+                            f"Requirements from the job description: {json.dumps(requirements)}\n"
+                            f"All extracted job skills that must be addressed: {json.dumps(job_skills)}\n"
+                            f"Skills supported by the resume: {json.dumps(matched_skills)}\n"
+                            f"Skills not supported by the resume and must be framed as growth areas: {json.dumps(missing_skills)}\n\n"
+                            f"Resume:\n{resume_text}\n\n"
+                            f"Job Description:\n{job_description}\n"
+                        ),
+                    },
+                ],
+            )
+            cover_letter = response.choices[0].message.content.strip()
+        except Exception:
+            source = "offline_fallback"
+            cover_letter = _build_cover_letter_fallback(
+                resume_text,
+                job_description,
+                company_name,
+                role_title,
+                tone,
+                candidate_name,
+            )
+
+    cover_letter = _strip_placeholder_lines(cover_letter)
+    cover_letter = _cleanup_cover_letter_text(cover_letter, company_name)
+    cover_letter = _ensure_named_signature(cover_letter, candidate_name)
+
+    covered_skills: list[str] = []
+    uncovered_skills: list[str] = []
+    covered_responsibilities: list[str] = []
+    uncovered_responsibilities: list[str] = []
+    coverage_score = 0.0
+
+    for _ in range(2):
+        covered_skills, uncovered_skills, covered_responsibilities, uncovered_responsibilities, coverage_score = _assess_cover_letter_alignment(
+            cover_letter,
+            job_skills,
+            responsibilities,
+        )
+
+        generic = _is_generic_cover_letter(cover_letter, company_name, role_title)
+        rewrite_reasons: list[str] = []
+        if coverage_score < COVER_LETTER_COVERAGE_TARGET:
+            rewrite_reasons.append(f"coverage_below_target_{coverage_score}")
+        if generic:
+            rewrite_reasons.append("templated_or_generic_wording")
+
+        if not rewrite_reasons and not uncovered_skills and not uncovered_responsibilities:
+            break
+
+        revised = _revise_cover_letter_for_alignment(
+            cover_letter,
+            company_name,
+            role_title,
+            tone,
+            matched_skills,
+            missing_skills,
+            uncovered_skills,
+            uncovered_responsibilities,
+            rewrite_reasons,
+        )
+        revised = _strip_placeholder_lines(revised)
+        revised = _cleanup_cover_letter_text(revised, company_name)
+        revised = _ensure_named_signature(revised, candidate_name)
+
+        revised_covered_skills, revised_uncovered_skills, revised_covered_responsibilities, revised_uncovered_responsibilities, revised_coverage_score = _assess_cover_letter_alignment(
+            revised,
+            job_skills,
+            responsibilities,
+        )
+        revised_generic = _is_generic_cover_letter(revised, company_name, role_title)
+
+        # Accept revision if it improves coverage or fixes generic language while preserving coverage.
+        if (revised_coverage_score > coverage_score) or (not revised_generic and revised_coverage_score >= coverage_score):
+            cover_letter = revised
+            covered_skills = revised_covered_skills
+            uncovered_skills = revised_uncovered_skills
+            covered_responsibilities = revised_covered_responsibilities
+            uncovered_responsibilities = revised_uncovered_responsibilities
+            coverage_score = revised_coverage_score
+
+    if uncovered_skills or uncovered_responsibilities:
+        cover_letter = _repair_cover_letter_alignment(
+            cover_letter,
+            matched_skills,
+            missing_skills,
+            uncovered_skills,
+            uncovered_responsibilities,
+        )
+        cover_letter = _strip_placeholder_lines(cover_letter)
+        cover_letter = _cleanup_cover_letter_text(cover_letter, company_name)
+        cover_letter = _ensure_named_signature(cover_letter, candidate_name)
+
+    return (
+        cover_letter,
+        source,
+        job_skills,
+        matched_skills,
+        responsibilities,
+    )
 
 
 # ============================================================================
@@ -468,6 +1307,78 @@ async def retrieve_chunks(request: QuestionRequest) -> dict[str, list[str]]:
     """
     chunks = _retrieve_resume_chunks(request.question, request.resume_text)
     return {"chunks": chunks}
+
+
+@app.post("/skill-gap-analyzer", response_model=SkillAnalysis)
+async def analyze_skill_gap(request: SkillGapAnalyzerRequest) -> SkillAnalysis:
+    """
+    Analyze skill gaps between resume and job description.
+    
+    - Extracts skills from both resume and job description
+    - Identifies matched and missing skills
+    - Generates recommendations for skill development
+    """
+    # Extract skills from both texts
+    resume_skills = _extract_skills(request.resume_text)
+    job_skills = _extract_skills(request.job_description)
+    
+    # Analyze gaps
+    matched_skills, missing_skills = _analyze_skill_gap(resume_skills, job_skills)
+    
+    # Generate recommendations
+    recommendations = _generate_recommendations(missing_skills)
+    
+    return SkillAnalysis(
+        resume_skills=resume_skills,
+        job_skills=job_skills,
+        matched_skills=matched_skills,
+        missing_skills=missing_skills,
+        recommendations=recommendations,
+    )
+
+
+@app.post("/generate-cover-letter", response_model=CoverLetterResponse)
+async def generate_cover_letter(request: CoverLetterRequest) -> CoverLetterResponse:
+    """Generate a cover letter using the uploaded resume and a target job description."""
+    resume_text = request.resume_text.strip()
+    job_description = request.job_description.strip()
+
+    if not resume_text:
+        raise HTTPException(status_code=400, detail="Resume content is required.")
+    if not job_description:
+        raise HTTPException(status_code=400, detail="Job description is required.")
+
+    company_name = (request.company_name or "").strip() or _extract_company_name(job_description)
+    role_title = (request.role_title or "").strip() or _extract_role_title(job_description)
+    tone = request.tone.strip() or "professional"
+
+    cover_letter, source, job_skills, matched_skills, responsibilities = _generate_cover_letter(
+        resume_text=resume_text,
+        job_description=job_description,
+        company_name=company_name,
+        role_title=role_title,
+        tone=tone,
+    )
+
+    covered_skills, uncovered_skills, covered_responsibilities, uncovered_responsibilities, coverage_score = _assess_cover_letter_alignment(
+        cover_letter,
+        job_skills,
+        responsibilities,
+    )
+
+    return CoverLetterResponse(
+        cover_letter=cover_letter,
+        company_name=company_name,
+        role_title=role_title,
+        tone=tone,
+        source=source,
+        job_skills=job_skills,
+        matched_job_skills=matched_skills,
+        uncovered_job_skills=uncovered_skills,
+        covered_responsibilities=covered_responsibilities,
+        uncovered_responsibilities=uncovered_responsibilities,
+        coverage_score=coverage_score,
+    )
 
 
 if __name__ == "__main__":
