@@ -124,13 +124,14 @@ st.markdown(
         color: #f7f9fc;
     }
     .block-container {
-        padding-top: 1.25rem;
+        padding-top: 4rem;
         padding-bottom: 2rem;
     }
     .hero {
-        padding: 1.2rem 1.4rem;
+        padding: 0.8rem 1.4rem 0.9rem 1.4rem;
+        margin-bottom: 1.5rem;
         border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 22px;
+        border-radius: 18px;
         background: linear-gradient(135deg, rgba(18, 30, 56, 0.95), rgba(16, 16, 35, 0.88));
         box-shadow: 0 20px 60px rgba(0,0,0,0.25);
     }
@@ -151,11 +152,60 @@ st.markdown(
         font-weight: 700;
     }
     .small-label {
+        display: inline-block;
         text-transform: uppercase;
-        letter-spacing: 0.12em;
-        font-size: 0.74rem;
-        color: rgba(255,255,255,0.6);
-        margin-bottom: 0.35rem;
+        letter-spacing: 0.1em;
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: #a78bfa;
+        background: rgba(139,92,246,0.12);
+        border: 1px solid rgba(139,92,246,0.38);
+        border-radius: 999px;
+        padding: 0.18rem 0.65rem;
+        margin-bottom: 0.55rem;
+    }
+    /* ---- Sidebar ---- */
+    section[data-testid="stSidebar"] {
+        background: rgba(8, 12, 28, 0.98) !important;
+        border-right: 1px solid rgba(255,255,255,0.05) !important;
+    }
+    section[data-testid="stSidebar"] .stRadio > div {
+        gap: 2px !important;
+    }
+    section[data-testid="stSidebar"] .stRadio label {
+        padding: 0.42rem 0.65rem !important;
+        border-radius: 9px !important;
+        cursor: pointer !important;
+        color: rgba(255,255,255,0.68) !important;
+        font-size: 0.93rem !important;
+        transition: background 0.15s, color 0.15s !important;
+    }
+    section[data-testid="stSidebar"] .stRadio label:hover {
+        background: rgba(139,92,246,0.10) !important;
+        color: #ddd6fe !important;
+    }
+    section[data-testid="stSidebar"] hr {
+        border-color: rgba(255,255,255,0.07) !important;
+        margin: 0.4rem 0 !important;
+    }
+    /* Logout button — CSS-pinned to sidebar base */
+    section[data-testid="stSidebar"] .stButton button {
+        position: fixed !important;
+        bottom: 1.25rem !important;
+        left: 1.25rem !important;
+        width: calc(21rem - 2.5rem) !important;
+        background: linear-gradient(135deg, #e11d48, #9d174d) !important;
+        border: 1px solid rgba(225,29,72,0.3) !important;
+        color: #fff !important;
+        font-weight: 600 !important;
+        border-radius: 10px !important;
+        letter-spacing: 0.03em !important;
+        padding: 0.55rem 0 !important;
+    }
+    section[data-testid="stSidebar"] .stButton button:hover {
+        background: linear-gradient(135deg, #f43f5e, #be185d) !important;
+        box-shadow: 0 4px 16px rgba(225,29,72,0.4) !important;
+        border-color: rgba(244,63,94,0.5) !important;
     }
     </style>
     """,
@@ -219,10 +269,48 @@ if not st.session_state.authenticated:
 # Main App (After Login)
 # ============================================================================
 
-# Sidebar: Logout button
+# Sidebar
 with st.sidebar:
-    st.markdown(f"### 👤 {st.session_state.authenticated_user}")
-    if st.button("Logout", use_container_width=True):
+    # DocBot branding
+    st.markdown("""
+        <div style="display:flex;align-items:center;gap:10px;padding:0.4rem 0 1.2rem 0;">
+            <div style="background:linear-gradient(135deg,#7c3aed,#4f46e5);border-radius:10px;
+                        width:38px;height:38px;display:flex;align-items:center;justify-content:center;
+                        box-shadow:0 4px 12px rgba(124,58,237,0.4);flex-shrink:0;">
+                <span style="font-size:1.25rem;line-height:1;">📄</span>
+            </div>
+            <span style="font-size:1.4rem;font-weight:800;
+                         background:linear-gradient(135deg,#a78bfa,#818cf8);
+                         -webkit-background-clip:text;-webkit-text-fill-color:transparent;">DocBot</span>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # User card
+    st.markdown(f"""
+        <div style="background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.18);
+                    border-radius:12px;padding:0.6rem 0.85rem;display:flex;align-items:center;
+                    gap:10px;margin-bottom:0.5rem;">
+            <div style="background:rgba(139,92,246,0.18);border-radius:50%;width:32px;height:32px;
+                        display:flex;align-items:center;justify-content:center;
+                        font-size:0.95rem;flex-shrink:0;">👤</div>
+            <span style="font-weight:600;color:#ddd6fe;font-size:0.94rem;">
+                {st.session_state.authenticated_user}
+            </span>
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # Navigation
+    page = st.radio(
+        "Navigation",
+        ["Upload & Chat", "Skill Gap Analyzer", "Cover Letter Generator",
+         "Dataset Explorer", "Evaluation Results", "Artifacts"],
+        label_visibility="collapsed",
+    )
+
+    # Logout — CSS-pinned to sidebar bottom
+    if st.button("→  Logout", use_container_width=True, key="sidebar_logout"):
         st.session_state.authenticated = False
         st.session_state.authenticated_user = None
         st.session_state.resume_text = None
@@ -231,14 +319,6 @@ with st.sidebar:
         st.session_state.generated_cover_letter = None
         st.session_state.generated_cover_letter_meta = {}
         st.rerun()
-    st.divider()
-
-# Navigation
-page = st.sidebar.radio(
-    "Navigation",
-    ["Upload & Chat", "Skill Gap Analyzer", "Cover Letter Generator", "Dataset Explorer", "Evaluation Results", "Artifacts"],
-    label_visibility="collapsed",
-)
 
 # ============================================================================
 # Page: Upload & Chat (Main Page)
@@ -249,7 +329,7 @@ if page == "Upload & Chat":
         """
         <div class="hero">
             <div class="small-label">Resume Chatbot</div>
-            <h1 style="margin:0; font-size:2.8rem;">Chat with your resume or document</h1>
+            <h1 style="margin:0; font-size:2.2rem;">Chat with your resume or document</h1>
             <p class="muted" style="margin-top:0.5rem; max-width: 920px;">
                 Upload a PDF, TXT, or Markdown file. The backend will extract and index the content.
                 Then ask questions and get grounded answers from your document.
@@ -352,7 +432,7 @@ elif page == "Skill Gap Analyzer":
         """
         <div class="hero">
             <div class="small-label">Career Development</div>
-            <h1 style="margin:0; font-size:2.8rem;">🚀 Skill Gap Analyzer</h1>
+            <h1 style="margin:0; font-size:2.2rem;">🚀 Skill Gap Analyzer</h1>
             <p class="muted" style="margin-top:0.5rem; max-width: 920px;">
                 Compare your uploaded resume with job requirements. Identify missing skills and get 
                 personalized recommendations to strengthen your qualifications.
@@ -507,7 +587,7 @@ elif page == "Cover Letter Generator":
         """
         <div class="hero">
             <div class="small-label">Job Applications</div>
-            <h1 style="margin:0; font-size:2.8rem;">Cover Letter Generator</h1>
+            <h1 style="margin:0; font-size:2.2rem;">Cover Letter Generator</h1>
             <p class="muted" style="margin-top:0.5rem; max-width: 920px;">
                 Generate a tailored cover letter from your uploaded resume and a target job description.
                 The draft stays grounded in your resume instead of inventing experience.
