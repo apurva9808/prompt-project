@@ -510,6 +510,19 @@ elif page == "Skill Gap Analyzer":
 
                         st.divider()
 
+                        # Low match score warning
+                        if match_percentage < 50:
+                            st.warning(
+                                "⚠️ **Low Match Score Detected**\n\n"
+                                "Your resume does not align well with this job description. "
+                                "Consider the following:\n\n"
+                                "- **Update your resume** to highlight relevant skills, "
+                                "experience, or projects that match the job requirements.\n"
+                                "- **Review the job description** to confirm it matches the "
+                                "role you are targeting — it may contain requirements outside "
+                                "your current career track."
+                            )
+
                         # Tabs for detailed breakdown
                         tab_matched, tab_missing, tab_all_skills = st.tabs(
                             ["✅ Matched Skills", "❌ Missing Skills", "All Skills"]
