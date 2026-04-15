@@ -412,14 +412,12 @@ SKILL_KEYWORDS_MAPPING = {
     "security": ["security", "oauth", "jwt", "encryption", "ssl", "tls"],
 }
 
-def _extract_skills(text: str) -> list[str]:
-    """Extract skills from resume or job description text."""
+def _extract_skills_keyword(text: str) -> list[str]:
+    """Keyword-based skill extraction used as offline fallback."""
     text_lower = text.lower()
-    
-    # Look for common skills
     found_skills = set()
+
     for skill in COMMON_TECHNICAL_SKILLS:
-        # Look for exact matches or matches with word boundaries
         patterns = [
             re.escape(skill) + r"(?:\s|,|;|$|\.)",
             r"(?:^|\s|,)" + re.escape(skill) + r"(?:\s|,|;|$|\.)",
@@ -428,36 +426,261 @@ def _extract_skills(text: str) -> list[str]:
             if re.search(pattern, text_lower, re.IGNORECASE):
                 found_skills.add(skill)
                 break
-    
-    # Also look for skills mentioned with keywords like "Languages:", "Skills:", etc.
+
     skill_sections = re.findall(
         r"(?:skills?|languages?|technologies?|tools?|experience with)[:\s]+([^\n.]+?)(?=\n|$|skills?|languages?|technologies?|tools?|experience)",
         text_lower,
-        re.IGNORECASE | re.DOTALL
+        re.IGNORECASE | re.DOTALL,
     )
-    
     for section in skill_sections:
-        # Split by common delimiters
-        items = re.split(r"[,;•\/-]|and", section)
-        for item in items:
+        for item in re.split(r"[,;•\/-]|and", section):
             item = item.strip()
-            # Check if any known skill is mentioned
             for skill in COMMON_TECHNICAL_SKILLS:
                 if skill in item:
                     found_skills.add(skill)
-    
-    return sorted(list(found_skills))
+
+    return sorted(found_skills)
 
 
-def _analyze_skill_gap(resume_skills: list[str], job_skills: list[str]) -> tuple[list[str], list[str]]:
-    """Analyze skill gaps between resume and job requirements."""
+def _extract_skills(text: str) -> list[str]:
+    """Extract skills/requirements from any text using LLM when available,
+    falling back to keyword matching for offline mode."""
+    if CLIENT is not None:
+        try:
+            response = CLIENT.chat.completions.create(
+                model=OPENAI_MODEL,
+                temperature=0,
+                max_tokens=300,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Extract all required skills, qualifications, tools, technologies, "
+                            "certifications, degrees, and domain expertise from the text. "
+                            "Return ONLY a comma-separated list of canonical skill names. "
+                            "Strip level qualifiers — write 'python' not 'intermediate python', "
+                            "'sql' not 'advanced sql'. Use the shortest standard name for each skill. "
+                            "No bullets, no numbering, no extra text. "
+                            "Examples: python, sql, clinical care, md degree, aws, etl, "
+                            "community health experience, bilingual english spanish."
+                        ),
+                    },
+                    {"role": "user", "content": text[:3000]},
+                ],
+            )
+            raw = response.choices[0].message.content.strip()
+            skills = [s.strip().lower() for s in raw.split(",") if s.strip()]
+            return sorted(set(skills))
+        except Exception:
+            pass
+
+    return _extract_skills_keyword(text)
+
+
+_STOP_TOKENS = {
+    "and", "or", "of", "in", "the", "with", "a", "an", "to", "for",
+    "is", "are", "as", "at", "be", "by", "on", "it", "its", "that",
+    "this", "from", "have", "has", "was", "were", "not", "but",
+}
+
+_GENERIC_TOKENS = {
+    "experience", "knowledge", "skills", "skill", "ability", "use",
+    "using", "work", "working", "strong", "good", "basic", "standard",
+    "general", "various", "related", "including", "such", "other",
+    "well", "ability", "demonstrated", "proven",
+}
+
+
+def _meaningful_tokens(phrase: str) -> set[str]:
+    """Return tokens from a phrase that are meaningful for matching."""
+    return {
+        t for t in phrase.lower().split()
+        if len(t) > 2 and t not in _STOP_TOKENS and t not in _GENERIC_TOKENS
+    }
+
+
+def _skills_match_offline(job_skill: str, resume_set: set[str]) -> bool:
+    """Strict offline matching: exact, containment, or meaningful-token overlap."""
+    js = job_skill.lower().strip()
+    for rs in resume_set:
+        r = rs.lower().strip()
+        if js == r:
+            return True
+        # Only allow containment when the shorter string is specific (>= 4 chars, not generic)
+        shorter, longer = (js, r) if len(js) <= len(r) else (r, js)
+        if len(shorter) >= 4 and shorter not in _GENERIC_TOKENS and shorter in longer:
+            return True
+        # Token overlap: require at least 1 meaningful shared token that is domain-specific
+        # (length >= 4 to avoid false positives on short common words)
+        js_tokens = {t for t in _meaningful_tokens(js) if len(t) >= 4}
+        rs_tokens = {t for t in _meaningful_tokens(r) if len(t) >= 4}
+        if js_tokens and rs_tokens and js_tokens & rs_tokens:
+            return True
+    return False
+
+
+def _domains_are_compatible(resume_text: str, job_text: str) -> bool:
+    """Phase 1: Check if resume and job are in the same broad professional domain."""
+    if CLIENT is None:
+        return True
+    try:
+        response = CLIENT.chat.completions.create(
+            model=OPENAI_MODEL,
+            temperature=0,
+            max_tokens=80,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Decide whether a resume and a job description belong to the same "
+                        "broad professional domain.\n"
+                        "Return {\"compatible\": true} if they are in the same domain.\n"
+                        "Return {\"compatible\": false} if they are fundamentally different domains.\n\n"
+                        "INCOMPATIBLE examples:\n"
+                        "  - software/data/tech resume  vs  medical/clinical/physician/nursing job\n"
+                        "  - software/data/tech resume  vs  biotech/pharma/lab job\n"
+                        "  - software/data/tech resume  vs  skilled trades job\n"
+                        "  - software/data/tech resume  vs  legal/law job\n"
+                        "COMPATIBLE examples:\n"
+                        "  - data analyst resume  vs  data engineer job\n"
+                        "  - data analyst resume  vs  BI analyst job\n"
+                        "  - software engineer resume  vs  data scientist job\n"
+                        "Only return JSON, nothing else."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Resume (summary):\n{resume_text[:1200]}\n\n"
+                        f"Job description (summary):\n{job_text[:1200]}"
+                    ),
+                },
+            ],
+        )
+        result = json.loads(response.choices[0].message.content)
+        return bool(result.get("compatible", True))
+    except Exception:
+        return True
+
+
+def _evaluate_requirements(resume_text: str, job_skills: list[str]) -> tuple[list[str], list[str]]:
+    """Phase 2: Evaluate each job requirement individually against the resume."""
+    try:
+        response = CLIENT.chat.completions.create(
+            model=OPENAI_MODEL,
+            temperature=0,
+            max_tokens=1200,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You evaluate job requirements against a candidate resume one by one.\n"
+                        "For EACH requirement in the list, search the resume carefully and decide "
+                        "if it is satisfied.\n\n"
+                        "MATCH rules — mark matched=true when:\n"
+                        "- The skill, tool, or technology is explicitly named in the resume.\n"
+                        "- The resume shows equivalent hands-on work "
+                        "(e.g. built ETL pipelines → satisfies 'etl'; "
+                        "Power BI dashboards → satisfies 'reporting' or 'business intelligence'; "
+                        "published research papers → satisfies 'technical documentation').\n"
+                        "- The resume has a superset "
+                        "(MySQL + Oracle + Postgres → satisfies 'sql' or 'database management').\n"
+                        "- The resume role/title/project clearly implies the skill "
+                        "('Data Engineer Intern' → 'data engineering'; "
+                        "B.Tech in Computer Science → 'computer science' or 'mathematics'; "
+                        "ML classifier achieving 94% accuracy → 'predictive modeling'; "
+                        "K-Means clustering project → 'unsupervised methods').\n"
+                        "- A general degree requirement is met by any bachelor's or master's "
+                        "in the same broad field.\n"
+                        "- Soft skills (communication, teamwork) are matched if the resume "
+                        "demonstrates them through projects, publications, or roles.\n\n"
+                        "NO MATCH rules — mark matched=false when:\n"
+                        "- A specific tool or platform is completely absent from the resume "
+                        "(R, Scala, Snowflake, SAS, Tableau, Salesforce, Gurobi, etc.).\n"
+                        "- The required years of experience far exceed what the resume shows.\n"
+                        "- The requirement belongs to a subfield with no resume evidence.\n\n"
+                        "Return JSON with one key:\n"
+                        "  'evaluations': list of objects, each with:\n"
+                        "    'requirement': the exact requirement string from the input list\n"
+                        "    'matched': true or false\n"
+                        "Every requirement in the input list MUST appear in evaluations."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "resume": resume_text[:3500],
+                            "requirements": job_skills,
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+        )
+        result = json.loads(response.choices[0].message.content)
+        evaluations = result.get("evaluations", [])
+
+        matched, missing = [], []
+        evaluated = set()
+        for item in evaluations:
+            req = item.get("requirement", "").strip()
+            if not req:
+                continue
+            evaluated.add(req)
+            if item.get("matched"):
+                matched.append(req)
+            else:
+                missing.append(req)
+
+        # Any requirement the LLM omitted → missing
+        for js in job_skills:
+            if js not in evaluated:
+                missing.append(js)
+
+        return sorted(matched), sorted(missing)
+    except Exception:
+        # Fallback to offline if LLM call fails
+        resume_set = set(resume_text.lower().split())
+        matched, missing = [], []
+        for js in job_skills:
+            if _skills_match_offline(js, resume_set):
+                matched.append(js)
+            else:
+                missing.append(js)
+        return sorted(matched), sorted(missing)
+
+
+def _analyze_skill_gap(
+    resume_skills: list[str],
+    job_skills: list[str],
+    resume_text: str = "",
+    job_text: str = "",
+) -> tuple[list[str], list[str]]:
+    """Two-phase skill gap analysis:
+    Phase 1 — domain compatibility check (incompatible → 0% match immediately).
+    Phase 2 — per-requirement evaluation against the full resume text.
+    Offline fallback uses strict token matching.
+    """
+    if CLIENT is not None:
+        # Phase 1: domain check
+        if not _domains_are_compatible(resume_text, job_text):
+            return [], sorted(job_skills)
+
+        # Phase 2: per-requirement evaluation
+        return _evaluate_requirements(resume_text, job_skills)
+
+    # Offline fallback — strict token matching against extracted skill list
     resume_set = set(resume_skills)
-    job_set = set(job_skills)
-    
-    matched = sorted(list(resume_set & job_set))
-    missing = sorted(list(job_set - resume_set))
-    
-    return matched, missing
+    matched, missing = [], []
+    for job_skill in job_skills:
+        if _skills_match_offline(job_skill, resume_set):
+            matched.append(job_skill)
+        else:
+            missing.append(job_skill)
+    return sorted(matched), sorted(missing)
 
 
 def _generate_recommendations(missing_skills: list[str]) -> list[str]:
@@ -1384,9 +1607,14 @@ async def analyze_skill_gap(request: SkillGapAnalyzerRequest) -> SkillAnalysis:
     # Extract skills from both texts
     resume_skills = _extract_skills(request.resume_text)
     job_skills = _extract_skills(request.job_description)
-    
-    # Analyze gaps
-    matched_skills, missing_skills = _analyze_skill_gap(resume_skills, job_skills)
+
+    # Analyze gaps — pass full texts for two-phase LLM evaluation
+    matched_skills, missing_skills = _analyze_skill_gap(
+        resume_skills,
+        job_skills,
+        resume_text=request.resume_text,
+        job_text=request.job_description,
+    )
     
     # Generate recommendations
     recommendations = _generate_recommendations(missing_skills)
