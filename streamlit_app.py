@@ -39,22 +39,63 @@ def _ascii_safe(s: str) -> str:
     return normalized.encode("ascii", "ignore").decode("ascii")
 
 
-def _cover_letter_to_pdf(text: str, company: str, role: str) -> bytes:
+def _extract_name_and_phone(resume_text: str) -> tuple[str, str]:
+    """Extract candidate name and phone number from the top of the resume."""
+    import re
+    lines = [l.strip() for l in resume_text.splitlines() if l.strip()][:15]
+
+    # Phone: look for common formats
+    phone = ""
+    phone_pattern = re.compile(r"(\+?1?\s*[\-.]?\s*\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4})")
+    for line in lines:
+        m = phone_pattern.search(line)
+        if m:
+            phone = m.group(1).strip()
+            break
+
+    # Name: first non-email, non-phone, non-URL line with 2-4 words and title case
+    name = ""
+    for line in lines[:6]:
+        if re.search(r"@|http|linkedin|github|\d{5}|\+?\d[\d\s\-().]{7,}", line, re.IGNORECASE):
+            continue
+        words = line.split()
+        if 2 <= len(words) <= 4 and all(w[0].isupper() for w in words if w.isalpha()):
+            name = line
+            break
+
+    return name, phone
+
+
+def _cover_letter_to_pdf(text: str, resume_text: str = "") -> bytes:
     """Render plain-text cover letter as a clean A4 PDF."""
     pdf = FPDF()
     pdf.add_page()
     pdf.set_margins(left=20, top=20, right=20)
     pdf.set_auto_page_break(auto=True, margin=20)
 
-    # Title line (ASCII-safe so Helvetica can render it)
-    pdf.set_font("Helvetica", "B", 14)
-    title = f"Cover Letter - {role} at {company}" if role and company else "Cover Letter"
-    pdf.cell(0, 10, _ascii_safe(title), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    pdf.ln(4)
+    usable_width = pdf.w - pdf.l_margin - pdf.r_margin
+
+    # Header: candidate name + phone extracted from resume
+    candidate_name, phone = _extract_name_and_phone(resume_text) if resume_text else ("", "")
+
+    if candidate_name:
+        pdf.set_font("Helvetica", "B", 16)
+        pdf.cell(0, 9, _ascii_safe(candidate_name), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    if phone:
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(100, 100, 100)
+        pdf.cell(0, 6, _ascii_safe(phone), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_text_color(0, 0, 0)
+
+    if candidate_name or phone:
+        pdf.ln(4)
+        # Thin separator line
+        pdf.set_draw_color(200, 200, 200)
+        pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
+        pdf.ln(6)
 
     # Body
     pdf.set_font("Helvetica", "", 11)
-    usable_width = pdf.w - pdf.l_margin - pdf.r_margin
     for raw_line in text.splitlines():
         if raw_line.strip() == "":
             pdf.ln(5)
@@ -233,36 +274,422 @@ if "generated_cover_letter_meta" not in st.session_state:
 # ============================================================================
 
 if not st.session_state.authenticated:
-    st.markdown(
-        """
-        <div class="hero" style="max-width: 620px; margin: 7vh auto 0 auto; text-align: center;">
-            <div class="small-label">Document chatbot</div>
-            <h1 style="margin:0; font-size:2.6rem;">Login first</h1>
-            <p class="muted" style="margin-top:0.5rem;">
-                Sign in to access the resume chatbot and upload your documents.
-            </p>
+    _cred_err = st.session_state.get("_login_cred_err", False)
+
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+    /* ═══════════════════════════════════════════════
+       1. HIDE ALL STREAMLIT CHROME
+    ═══════════════════════════════════════════════ */
+    #MainMenu, footer, header            { display: none !important; }
+    .stDeployButton                      { display: none !important; }
+    div[data-testid="stToolbar"]         { display: none !important; }
+    div[data-testid="stDecoration"]      { display: none !important; }
+    div[data-testid="InputInstructions"] { display: none !important; }
+    p[data-testid="InputInstructions"]   { display: none !important; }
+    /* Hide browser autocomplete dropdown */
+    input:-webkit-autofill,
+    input:-webkit-autofill:hover,
+    input:-webkit-autofill:focus {
+        -webkit-box-shadow: 0 0 0px 1000px #0d0d18 inset !important;
+        -webkit-text-fill-color: #ffffff !important;
+        caret-color: #818cf8 !important;
+    }
+    /* Anchor links injected by Streamlit on headings */
+    .login-heading a { display: none !important; }
+
+    /* ═══════════════════════════════════════════════
+       2. GLOBAL FONT + BOX SIZING
+    ═══════════════════════════════════════════════ */
+    *, *::before, *::after {
+        box-sizing: border-box;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    }
+
+    /* ═══════════════════════════════════════════════
+       3. CLEAN DARK BACKGROUND — no grid, no noise
+    ═══════════════════════════════════════════════ */
+    html, body,
+    .stApp,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stAppViewBlockContainer"],
+    .main > div {
+        background: #0a0a0f !important;
+        background-image: none !important;
+        background-color: #0a0a0f !important;
+    }
+
+    /* ═══════════════════════════════════════════════
+       4. CENTER LAYOUT
+    ═══════════════════════════════════════════════ */
+    .block-container {
+        max-width: 420px !important;
+        margin: 0 auto !important;
+        padding: 6vh 1rem 3rem !important;
+    }
+
+    /* ═══════════════════════════════════════════════
+       5. ANIMATIONS
+    ═══════════════════════════════════════════════ */
+    @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(16px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes cardGlow {
+        0%,100% { box-shadow: 0 0 30px rgba(99,102,241,0.15),
+                              0 0 60px rgba(99,102,241,0.08),
+                              0 24px 60px rgba(0,0,0,0.6); }
+        50%     { box-shadow: 0 0 45px rgba(99,102,241,0.28),
+                              0 0 90px rgba(99,102,241,0.14),
+                              0 0 120px rgba(79,70,229,0.08),
+                              0 24px 60px rgba(0,0,0,0.6); }
+    }
+
+    /* ═══════════════════════════════════════════════
+       6. BRAND ICON
+    ═══════════════════════════════════════════════ */
+    .doc-icon-wrap {
+        width: 72px; height: 72px;
+        background: rgba(99,102,241,0.10);
+        border: 1px solid rgba(99,102,241,0.18);
+        border-radius: 20px;
+        display: flex; align-items: center; justify-content: center;
+        margin: 0 auto 1.2rem;
+        box-shadow: 0 0 36px rgba(99,102,241,0.16), 0 8px 24px rgba(0,0,0,0.5);
+        animation: fadeUp 0.5s ease both;
+    }
+
+    /* ═══════════════════════════════════════════════
+       7. "DOCUMENT CHATBOT" PILL — no hard border
+    ═══════════════════════════════════════════════ */
+    .login-chip {
+        display: inline-block;
+        background: rgba(99,102,241,0.12);
+        color: #c4b5fd;
+        font-size: 12px; font-weight: 700;
+        letter-spacing: 4px; text-transform: uppercase;
+        border-radius: 999px; padding: 5px 18px;
+        margin-bottom: 14px;
+        border: 1px solid rgba(255,255,255,0.05);
+        animation: fadeUp 0.5s 0.06s ease both;
+    }
+
+    /* ═══════════════════════════════════════════════
+       8. HEADING + SUBTITLE
+    ═══════════════════════════════════════════════ */
+    .login-heading {
+        font-size: 36px; font-weight: 700; color: #ffffff;
+        letter-spacing: -0.03em; margin: 0 0 6px; line-height: 1.15;
+        animation: fadeUp 0.5s 0.10s ease both;
+    }
+    .login-sub {
+        font-size: 13.5px; color: #64748b !important; line-height: 1.55;
+        margin: 0 auto; max-width: 100%;
+        word-break: break-word;
+        opacity: 0.75;
+        animation: fadeUp 0.5s 0.14s ease both;
+    }
+
+    /* ═══════════════════════════════════════════════
+       9. SINGLE GLASS CARD — wraps everything
+    ═══════════════════════════════════════════════ */
+    div[data-testid="stForm"] {
+        background: rgba(255,255,255,0.02) !important;
+        border: 1px solid rgba(255,255,255,0.06) !important;
+        border-radius: 20px !important;
+        padding: 36px 32px 32px !important;
+        backdrop-filter: blur(20px) !important;
+        -webkit-backdrop-filter: blur(20px) !important;
+        animation: cardGlow 5s ease-in-out infinite,
+                   fadeUp 0.5s 0.18s ease both !important;
+    }
+
+    /* ═══════════════════════════════════════════════
+       10. CUSTOM FIELD LABELS
+    ═══════════════════════════════════════════════ */
+    .field-label {
+        color: #94a3b8;
+        font-size: 11px; font-weight: 500;
+        letter-spacing: 2px; text-transform: uppercase;
+        margin-bottom: 8px; display: block;
+    }
+    div[data-testid="stTextInput"] label { display: none !important; }
+
+    /* ═══════════════════════════════════════════════
+       11. INPUT FIELDS — dark background, purple focus
+       Strategy: target the BaseWeb containers directly.
+       The card bg is ~#0c0c13; inputs use rgba(255,255,255,0.05)
+       so they're barely distinguishable — just a faint edge.
+    ═══════════════════════════════════════════════ */
+
+    /* Strip BaseWeb's outer shell */
+    div[data-baseweb="input"] {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+
+    /* The actual visible box — carved into the dark surface */
+    div[data-testid="stTextInput"] div[data-baseweb="base-input"] {
+        background-color: rgba(255,255,255,0.02) !important;
+        border: 1px solid rgba(255,255,255,0.05) !important;
+        border-radius: 12px !important;
+        box-shadow: none !important;
+        transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s !important;
+    }
+
+    /* PURPLE focus — on the wrapper, not the raw input (fix 2) */
+    div[data-testid="stTextInput"] div[data-baseweb="base-input"]:focus-within {
+        background-color: rgba(99,102,241,0.06) !important;
+        border-color: rgba(99,102,241,0.5) !important;
+        box-shadow: 0 0 0 3px rgba(99,102,241,0.10),
+                    0 0 15px rgba(99,102,241,0.12) !important;
+    }
+
+    /* Raw <input> — transparent, white text, no outline of its own */
+    div[data-testid="stTextInput"] input {
+        background: transparent !important;
+        background-color: transparent !important;
+        color: #ffffff !important;
+        padding: 14px 16px !important;
+        font-size: 15px !important;
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+        caret-color: #818cf8 !important;
+        -webkit-text-fill-color: #ffffff !important;
+    }
+    div[data-testid="stTextInput"] input::placeholder {
+        color: #3a3f52 !important;
+        -webkit-text-fill-color: #3a3f52 !important;
+        opacity: 1 !important;
+    }
+    /* Nuke every possible native focus ring — yellow, blue, red, all */
+    div[data-testid="stTextInput"] input:focus,
+    div[data-testid="stTextInput"] input:focus-visible,
+    div[data-testid="stTextInput"] input:focus-within {
+        outline: none !important;
+        outline-offset: 0 !important;
+        box-shadow: none !important;
+        border: none !important;
+        background: transparent !important;
+    }
+
+    /* ═══════════════════════════════════════════════
+       12. EYE ICON — subtle, no background
+    ═══════════════════════════════════════════════ */
+    div[data-baseweb="input-enhancer"] {
+        background: transparent !important;
+        border: none !important;
+        padding-right: 4px !important;
+    }
+    div[data-baseweb="input-enhancer"] button {
+        background: transparent !important;
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+        padding: 0 8px !important;
+        cursor: pointer !important;
+        color: #3a3f52 !important;
+    }
+    div[data-baseweb="input-enhancer"] button svg {
+        fill: #3a3f52 !important;
+        color: #3a3f52 !important;
+        width: 16px !important;
+        height: 16px !important;
+    }
+    div[data-baseweb="input-enhancer"] button:hover svg {
+        fill: #64748b !important;
+        color: #64748b !important;
+    }
+
+    /* ═══════════════════════════════════════════════
+       13. SIGN IN BUTTON — gradient, no border
+       NOTE: Do NOT use "div[data-testid="stForm"] button"
+       here — that's too broad and would also catch the
+       now-hidden eye-icon button if it reappears.
+    ═══════════════════════════════════════════════ */
+    button[kind="primaryFormSubmit"],
+    button[data-testid="baseButton-primaryFormSubmit"],
+    div[data-testid="stFormSubmitButton"] button {
+        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 50%, #3b82f6 100%) !important;
+        background-image: linear-gradient(135deg, #6366f1 0%, #4f46e5 50%, #3b82f6 100%) !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-color: transparent !important;
+        outline: none !important;
+        outline-offset: 0 !important;
+        -webkit-appearance: none !important;
+        border-radius: 12px !important;
+        padding: 14px 24px !important;
+        font-size: 16px !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.5px !important;
+        width: 100% !important;
+        margin-top: 10px !important;
+        box-shadow: 0 4px 20px rgba(99,102,241,0.35) !important;
+        transition: all 0.25s ease !important;
+        cursor: pointer !important;
+    }
+    button[kind="primaryFormSubmit"]:hover,
+    button[data-testid="baseButton-primaryFormSubmit"]:hover,
+    div[data-testid="stFormSubmitButton"] button:hover {
+        filter: brightness(1.15) !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 8px 28px rgba(99,102,241,0.5) !important;
+        border: none !important;
+        outline: none !important;
+    }
+    button[kind="primaryFormSubmit"]:focus,
+    button[kind="primaryFormSubmit"]:focus-visible,
+    button[data-testid="baseButton-primaryFormSubmit"]:focus,
+    button[data-testid="baseButton-primaryFormSubmit"]:focus-visible,
+    div[data-testid="stFormSubmitButton"] button:focus,
+    div[data-testid="stFormSubmitButton"] button:focus-visible {
+        outline: none !important;
+        box-shadow: 0 4px 20px rgba(99,102,241,0.35) !important;
+        border: none !important;
+    }
+
+    /* ═══════════════════════════════════════════════
+       14. WRONG-CREDENTIALS ERROR
+    ═══════════════════════════════════════════════ */
+    .cred-err {
+        display: flex; align-items: center; gap: 8px;
+        background: rgba(239,68,68,0.07);
+        border: 1px solid rgba(239,68,68,0.16);
+        border-radius: 10px; padding: 12px 14px;
+        color: #f87171; font-size: 13px; margin-top: 10px;
+    }
+
+    /* ═══════════════════════════════════════════════
+       15. DEMO BOX + BADGE (fix 6)
+    ═══════════════════════════════════════════════ */
+    .demo-box {
+        display: flex; align-items: center; gap: 10px;
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 10px; padding: 12px 14px;
+        margin-top: 14px; font-size: 13px; color: #64748b;
+        animation: fadeUp 0.5s 0.32s ease both;
+    }
+    .demo-badge {
+        background: #4c1d95;
+        color: #c4b5fd;
+        border-radius: 6px; padding: 3px 10px;
+        font-size: 11px; font-weight: 700;
+        letter-spacing: 1px; text-transform: uppercase;
+        flex-shrink: 0; border: none;
+    }
+    .demo-cred { color: #ffffff; font-weight: 700; }
+
+    /* ═══════════════════════════════════════════════
+       16. FEATURE CHIPS
+    ═══════════════════════════════════════════════ */
+    .chips-row {
+        display: flex; justify-content: center; gap: 8px;
+        margin-top: 18px; flex-wrap: wrap;
+        animation: fadeUp 0.5s 0.38s ease both;
+    }
+    .chip {
+        display: inline-flex; align-items: center; gap: 5px;
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 999px; padding: 5px 14px;
+        font-size: 11px; color: #475569; white-space: nowrap;
+    }
+    </style>
+
+    """, unsafe_allow_html=True)
+
+    # ── SINGLE GLASS CARD: header + form ──
+    with st.form("login_form", clear_on_submit=False):
+        # Header inside the card
+        st.markdown("""
+        <div style="text-align:center; padding-bottom:28px; border-bottom:1px solid rgba(255,255,255,0.05); margin-bottom:24px;">
+          <div class="doc-icon-wrap">
+            <svg width="38" height="38" viewBox="0 0 38 38" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="5" y="2" width="20" height="26" rx="3" fill="url(#lg1)" opacity="0.9"/>
+              <rect x="9"  y="8"  width="12" height="2" rx="1" fill="#e0e7ff" opacity="0.6"/>
+              <rect x="9"  y="13" width="12" height="2" rx="1" fill="#e0e7ff" opacity="0.6"/>
+              <rect x="9"  y="18" width="8"  height="2" rx="1" fill="#e0e7ff" opacity="0.6"/>
+              <circle cx="27" cy="27" r="9"   fill="#0a0a0f"/>
+              <circle cx="27" cy="27" r="7.5" fill="url(#lg2)"/>
+              <circle cx="27" cy="27" r="7.5" fill="none" stroke="rgba(96,165,250,0.3)" stroke-width="1"/>
+              <path d="M23.5 27.5 L26.3 30.3 L30.8 24.8"
+                    stroke="white" stroke-width="1.8"
+                    stroke-linecap="round" stroke-linejoin="round"/>
+              <defs>
+                <linearGradient id="lg1" x1="5" y1="2" x2="25" y2="28" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#818cf8"/>
+                  <stop offset="1" stop-color="#6366f1"/>
+                </linearGradient>
+                <linearGradient id="lg2" x1="20" y1="20" x2="34" y2="34" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#60a5fa"/>
+                  <stop offset="1" stop-color="#3b82f6"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          <div class="login-chip">Document Chatbot</div>
+          <div class="login-heading">Welcome Back</div>
+          <p class="login-sub">Sign in to chat with your documents using AI-powered analysis</p>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """, unsafe_allow_html=True)
 
-    login_cols = st.columns([0.18, 0.64, 0.18])
-    with login_cols[1]:
-        with st.form("login_form", clear_on_submit=False):
-            username = st.text_input("Username", placeholder="apurva")
-            password = st.text_input("Password", type="password", placeholder="resume123")
-            submitted = st.form_submit_button("Login", use_container_width=True)
+        st.markdown('<span class="field-label">Username</span>', unsafe_allow_html=True)
+        username = st.text_input(
+            "doc_chatbot_user_v1",
+            placeholder="Enter your username",
+            label_visibility="collapsed",
+            key="login_username",
+        )
 
-        if submitted:
-            # Simple demo authentication
-            if username == "apurva" and password == "resume123":
-                st.session_state.authenticated = True
-                st.session_state.authenticated_user = username.capitalize()
-                st.rerun()
-            else:
-                st.error("Invalid credentials. Try: apurva / resume123")
+        st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
 
-    st.caption('Demo: username: apurva, password: resume123')
+        st.markdown('<span class="field-label">Password</span>', unsafe_allow_html=True)
+        password = st.text_input(
+            "doc_chatbot_pass_v1",
+            type="password",
+            placeholder="Enter your password",
+            label_visibility="collapsed",
+            key="login_password",
+        )
+
+        if _cred_err:
+            st.markdown(
+                '<div class="cred-err">&#10007;&nbsp; Invalid credentials — please try again</div>',
+                unsafe_allow_html=True,
+            )
+
+        submitted = st.form_submit_button("Sign In →", use_container_width=True)
+
+    # ── AUTH LOGIC ──
+    if submitted:
+        if username.strip() == "apurva" and password == "resume123":
+            st.session_state.authenticated      = True
+            st.session_state.authenticated_user = "Apurva"
+            st.session_state._login_cred_err    = False
+            st.rerun()
+        else:
+            st.session_state._login_cred_err = True
+            st.rerun()
+
+    # ── DEMO HINT + FEATURE CHIPS (below card) ──
+    st.markdown("""
+    <div class="demo-box">
+      <span class="demo-badge">Demo</span>
+      <span>Use <span class="demo-cred">apurva</span> / <span class="demo-cred">resume123</span> to sign in</span>
+    </div>
+    <div class="chips-row">
+      <span class="chip">Upload &amp; Chat</span>
+      <span class="chip">RAG Pipeline</span>
+      <span class="chip">Evaluation</span>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.stop()
 
 # ============================================================================
@@ -648,8 +1075,6 @@ elif page == "Cover Letter Generator":
                         payload = {
                             "resume_text": st.session_state.resume_text,
                             "job_description": job_description,
-                            "company_name": company_name,
-                            "role_title": role_title,
                             "tone": tone,
                         }
                         response = requests.post(f"{API_URL}/generate-cover-letter", json=payload, timeout=60)
@@ -677,14 +1102,12 @@ elif page == "Cover Letter Generator":
             safe_role = str(letter_meta.get("role_title", "role")).strip().lower().replace(" ", "_")
 
             st.divider()
-            summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
+            summary_col1, summary_col2, summary_col3 = st.columns(3)
             with summary_col1:
                 st.metric("Company", letter_meta.get("company_name", "-"))
             with summary_col2:
                 st.metric("Role", letter_meta.get("role_title", "-"))
             with summary_col3:
-                st.metric("Source", letter_meta.get("source", "-"))
-            with summary_col4:
                 st.metric("Coverage", f"{letter_meta.get('coverage_score', 0)}%")
 
             if letter_meta.get("job_skills"):
@@ -730,11 +1153,10 @@ elif page == "Cover Letter Generator":
                 key="generated_cover_letter_preview",
             )
 
-            download_name = f"cover_letter_{safe_company}_{safe_role}.pdf"
+            download_name = f"cover_letter_{safe_company}.pdf"
             pdf_bytes = _cover_letter_to_pdf(
                 st.session_state.generated_cover_letter,
-                letter_meta.get("company_name", ""),
-                letter_meta.get("role_title", ""),
+                st.session_state.resume_text or "",
             )
 
             action_col1, action_col2 = st.columns([1, 1.4])
