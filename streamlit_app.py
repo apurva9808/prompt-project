@@ -1110,7 +1110,24 @@ elif page == "Cover Letter Generator":
             with summary_col3:
                 st.metric("Coverage", f"{letter_meta.get('coverage_score', 0)}%")
 
-            if letter_meta.get("job_skills"):
+            # Resume-JD alignment warning
+            job_skills_list = letter_meta.get("job_skills", [])
+            matched_list = letter_meta.get("matched_job_skills", [])
+            if job_skills_list:
+                resume_match_rate = len(matched_list) / len(job_skills_list) * 100
+                if resume_match_rate < 50:
+                    st.warning(
+                        "⚠️ **Your resume does not align well with this job description.**\n\n"
+                        "The cover letter has been generated, but your resume covers fewer than "
+                        f"**{int(resume_match_rate)}%** of the required skills in this JD. "
+                        "You may want to:\n\n"
+                        "- **Update your resume** to highlight skills and experience that match "
+                        "the job requirements.\n"
+                        "- **Double-check the job description** — it may not match the role you "
+                        "are targeting."
+                    )
+
+            if job_skills_list:
                 st.markdown("### Job Alignment Summary")
                 align_tab1, align_tab2, align_tab3 = st.tabs([
                     "Supported Skills",

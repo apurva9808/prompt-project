@@ -1269,7 +1269,14 @@ def _generate_cover_letter(
     """Generate a cover letter with OpenAI when available, otherwise use a fallback."""
     candidate_name = _extract_candidate_name(resume_text)
     responsibilities, requirements = _extract_job_focus(job_description)
-    job_skills, matched_skills, missing_skills = _get_cover_letter_skill_alignment(job_description, resume_text)
+    resume_skills = _extract_skills(resume_text)
+    job_skills = _extract_skills(job_description)
+    matched_skills, missing_skills = _analyze_skill_gap(
+        resume_skills,
+        job_skills,
+        resume_text=resume_text,
+        job_text=job_description,
+    )
 
     if CLIENT is None:
         cover_letter = _build_cover_letter_fallback(
