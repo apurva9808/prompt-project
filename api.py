@@ -756,26 +756,36 @@ def _generate_recommendations(missing_skills: list[str]) -> list[str]:
 def _extract_role_title(job_description: str) -> str:
     """Best-effort role title extraction from a job description."""
     first_lines = [line.strip() for line in job_description.splitlines() if line.strip()][:8]
-    patterns = [
+    skip_prefixes = {"about the job", "about", "job description"}
+    # Patterns that explicitly label the role
+    labeled_patterns = [
         r"job title\s*[:\-]\s*(.+)",
         r"position\s*[:\-]\s*(.+)",
         r"role\s*[:\-]\s*(.+)",
-        r"hiring for\s+(.+)",
+        r"hiring for\s*[:\-]?\s*(.+)",
+        r"we(?:'re| are) hiring\s*[:\-]?\s*(.+)",  # handles "We're Hiring: Jr. Data Engineer"
+        r"open(?:ing)? for\s+(?:a\s+)?(.+)",
     ]
 
     for line in first_lines:
-        if line.lower() in {"about the job", "about", "job description"}:
+        if line.lower() in skip_prefixes:
             continue
-        for pattern in patterns:
+        for pattern in labeled_patterns:
             match = re.search(pattern, line, re.IGNORECASE)
             if match:
                 value = match.group(1).strip(" .:-")
+                # Strip trailing noise like "(Full-Time)", "- Full Time"
+                value = re.sub(r"\s*[\(\-–]\s*(full.time|part.time|contract|remote|hybrid).*", "", value, flags=re.IGNORECASE)
                 return value.split("|")[0].strip()
 
+    # Fallback: short line that looks like a title (no filler words at start)
+    filler_starts = {"we", "our", "you", "this", "the", "a ", "an "}
     for line in first_lines:
-        if line.lower() in {"about the job", "about", "job description"}:
+        if line.lower() in skip_prefixes:
             continue
-        if 3 <= len(line.split()) <= 8 and any(char.isalpha() for char in line):
+        if any(line.lower().startswith(f) for f in filler_starts):
+            continue
+        if 2 <= len(line.split()) <= 7 and any(char.isalpha() for char in line):
             return line.split("|")[0].strip(" .:-")
 
     return "the role"
@@ -783,17 +793,30 @@ def _extract_role_title(job_description: str) -> str:
 
 def _extract_company_name(job_description: str) -> str:
     """Best-effort company extraction from a job description."""
-    patterns = [
-        r"company\s*[:\-]\s*(.+)",
-        r"at\s+([A-Z][A-Za-z0-9&.,' -]{2,})",
-        r"join\s+([A-Z][A-Za-z0-9&.,' -]{2,})",
-    ]
+    # Common words that should NOT be part of a company name
+    _stop_words = {"this", "the", "a", "an", "our", "we", "it", "that", "which", "is", "was", "to", "and"}
+
+    labeled = r"company\s*[:\-]\s*(.+)"
+    contextual = r"(?:at|join|joining)\s+([A-Z][A-Za-z0-9&.',]+(?:\s+[A-Z][A-Za-z0-9&.',]+){0,3})"
 
     for line in [line.strip() for line in job_description.splitlines() if line.strip()][:12]:
-        for pattern in patterns:
-            match = re.search(pattern, line)
-            if match:
-                return match.group(1).strip(" .:-")
+        m = re.search(labeled, line, re.IGNORECASE)
+        if m:
+            return m.group(1).strip(" .:-").split(".")[0].strip()
+
+        m = re.search(contextual, line)
+        if m:
+            raw = m.group(1).strip()
+            # Build company name word by word, stop when hitting a stop word
+            words = raw.split()
+            name_words = []
+            for word in words:
+                clean = word.strip(".,")
+                if clean.lower() in _stop_words:
+                    break
+                name_words.append(word.rstrip("."))
+            if name_words:
+                return " ".join(name_words).strip(" .:-")
 
     return "your team"
 
@@ -1639,8 +1662,9 @@ async def generate_cover_letter(request: CoverLetterRequest) -> CoverLetterRespo
     if not job_description:
         raise HTTPException(status_code=400, detail="Job description is required.")
 
-    company_name = (request.company_name or "").strip() or _extract_company_name(job_description)
-    role_title = (request.role_title or "").strip() or _extract_role_title(job_description)
+    # Always extract from JD — user-provided values are not used for letter generation
+    company_name = _extract_company_name(job_description)
+    role_title = _extract_role_title(job_description)
     tone = request.tone.strip() or "professional"
 
     cover_letter, source, job_skills, matched_skills, responsibilities = _generate_cover_letter(
