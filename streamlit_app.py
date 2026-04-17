@@ -66,6 +66,478 @@ def _extract_name_and_phone(resume_text: str) -> tuple[str, str]:
     return name, phone
 
 
+def _is_skill_related_question(question: str) -> bool:
+    """Detect skill-focused questions that should be handled in Skill Gap Analyzer or extracted from resume."""
+    import re
+
+    normalized = " ".join((question or "").strip().lower().split())
+    if not normalized:
+        return False
+
+    patterns = [
+        # Explicit skill keywords
+        r"\b(skill|skills|skillset)\b",
+        r"\b(skill\s+gap|missing\s+skills|gaps?)\b",
+        r"\b(strongest\s+skills?|core\s+skills?)\b",
+        # Specific extractive questions: "What <category> do I know/have?"
+        r"^what\s+(?:cloud|programming|database|framework|dev\s+)?(?:skills?|technologies?|languages?|frameworks?|tools?|databases?)\b",
+        # Do I know X? / Am I familiar with X? / Do I have experience with X?
+        r"^do\s+i\s+(?:know|have)\s+",
+        r"^am\s+i\s+familiar\s+with\s+",
+        r"^do\s+i\s+have\s+experience\s+with\s+",
+    ]
+    return any(re.search(pattern, normalized) for pattern in patterns)
+
+
+def _is_cover_letter_related_question(question: str) -> bool:
+    """Detect cover-letter requests that should use Cover Letter Generator."""
+    import re
+
+    normalized = " ".join((question or "").strip().lower().split())
+    if not normalized:
+        return False
+
+    patterns = [
+        r"\bcover\s*letter\b",
+        r"\bmotivation\s*letter\b",
+        r"\bapplication\s*letter\b",
+        r"\bwrite\s+(me\s+)?a\s+cover\s*letter\b",
+        r"\bdraft\s+(me\s+)?a\s+cover\s*letter\b",
+        r"\bgenerate\s+(me\s+)?a\s+cover\s*letter\b",
+    ]
+    return any(re.search(pattern, normalized) for pattern in patterns)
+
+
+def _is_comparative_skill_question(question: str) -> bool:
+    """Detect comparative skill questions that should use Skill Gap Analyzer."""
+    import re
+
+    normalized = " ".join((question or "").strip().lower().split())
+    if not normalized:
+        return False
+
+    patterns = [
+        r"\bcompare\s+my\s+skills?\b",
+        r"\bfit\s+for\s+(?:a\s+|the\s+)?job\b",
+        r"\bqualified\s+for\b",
+        r"\bmissing\s+skills?\s+for\b",
+        r"\bskill\s+gap\s+for\b",
+        r"\bdo\s+i\s+match\b",
+        r"\bam\s+i\s+suitable\s+for\b",
+        r"\bcan\s+i\s+apply\s+for\b",
+    ]
+    return any(re.search(pattern, normalized) for pattern in patterns)
+
+
+def _extract_skill_section_from_resume(question: str, resume_text: str) -> str:
+    """Extract relevant skill section from resume based on question."""
+    import re
+
+    if not resume_text:
+        return ""
+
+    normalized_q = " ".join((question or "").strip().lower().split())
+    
+    # Map skill keywords to resume sections
+    skill_keywords = {
+        r"\b(cloud|devops|docker|kubernetes|aws|azure|gcp)\b": ["Cloud Tech", "Cloud"],
+        r"\b(language|languages?\b|python|java|javascript|typescript|react|node)\b": ["Languages", "Frameworks"],
+        r"\b(database|databases?|sql|nosql|postgres|mysql|mongodb|redis)\b": ["Database"],
+        r"\b(framework|frameworks?|spring|express|django|react)\b": ["Frameworks"],
+        r"\b(tool|tools?\b|git|kafka|jenkins|github)\b": ["Dev Tools", "Tools"],
+        r"\b(agile|microservice|methodology)\b": ["Others"],
+    }
+    
+    # Find matching skill sections
+    matched_keywords = []
+    for pattern, sections in skill_keywords.items():
+        if re.search(pattern, normalized_q):
+            matched_keywords.extend(sections)
+    
+    # Extract Technical Skills section
+    skills_section = ""
+    lines = resume_text.split("\n")
+    in_skills = False
+    
+    for i, line in enumerate(lines):
+        if "Technical Skills" in line or "Skills" in line:
+            in_skills = True
+            skills_section += line + "\n"
+        elif in_skills:
+            if line.strip() and not line.startswith(" ") and ":" not in line:
+                # End of skills section
+                break
+            if line.strip():
+                skills_section += line + "\n"
+    
+    if not matched_keywords:
+        return skills_section.strip()
+    
+    # Filter to relevant subsections
+    filtered = []
+    current_subsection = None
+    
+    for line in skills_section.split("\n"):
+        # Check if this is a subsection header (e.g., "Languages:", "Cloud Tech:")
+        if any(keyword.lower() in line.lower() for keyword in matched_keywords):
+            current_subsection = line
+            filtered.append(line)
+        elif current_subsection:
+            # Include lines under current subsection until next subsection
+            if ":" in line:
+                current_subsection = None
+            else:
+                filtered.append(line)
+    
+    result = "\n".join(filtered).strip()
+    return result if result else skills_section.strip()
+
+
+def _check_specific_skill_in_resume(question: str, resume_text: str) -> str | None:
+    """Check if a specific skill is mentioned in the resume.
+    
+    Returns a direct answer like "Yes, Java is in your resume" or None if not a specific skill query.
+    """
+    import re
+    
+    if not resume_text:
+        return None
+    
+    normalized_q = question.lower().strip()
+    
+    # Pattern for "do i know X", "am i familiar with X", etc.
+    # Extract the skill name (what comes after the verb)
+    skill_match = re.search(
+        r"(?:do i (?:know|have)|am i familiar with)\s+([a-z0-9\+\.\#\-\s]+?)[\?\.]?$|"
+        r"what (?:cloud|programming|database|framework)[\s\w]+ (?:technologies?|languages?|skills?)[\s\w]*$",
+        normalized_q,
+        re.IGNORECASE
+    )
+    
+    if not skill_match or not skill_match.group(1):
+        # Not a specific skill query
+        return None
+    
+    skill_name = skill_match.group(1).strip()
+    if not skill_name:
+        return None
+    
+    # Extract Technical Skills section
+    skills_text = ""
+    lines = resume_text.split("\n")
+    in_skills = False
+    
+    for line in lines:
+        if "Technical Skills" in line:
+            in_skills = True
+        elif in_skills:
+            if line.strip() and not ":" in line and not line.startswith(" "):
+                break
+            skills_text += line + "\n"
+    
+    # Check if skill is in resume (case-insensitive)
+    skill_lower = skill_name.lower()
+    skills_text_lower = skills_text.lower()
+    
+    # Look for the skill as a complete word
+    if re.search(rf"\b{re.escape(skill_name)}\b", skills_text, re.IGNORECASE):
+        return f"✅ Yes, **{skill_name}** is listed in your resume."
+    
+    return None
+
+
+def _extract_experience_paragraph(question: str, resume_text: str) -> str | None:
+    """Extract experience/project sections from resume and format as paragraph.
+    
+    Handles questions like:
+    - Tell me about my experience at [company]
+    - What projects have I worked on?
+    - Summarize my professional background
+    - What was my role at [company]?
+    - What did I do at my previous companies?
+    """
+    import re
+    
+    if not resume_text:
+        return None
+    
+    normalized_q = question.lower().strip()
+    
+    # Check if asking about projects
+    is_projects = any(word in normalized_q for word in ["project", "worked on", "build", "develop", "built"])
+    # Distinguish companies list queries (local extraction) from generic experience/background (use GPT)
+    is_companies_query = any(word in normalized_q for word in ["previous", "all companies", "all my companies"])
+    is_generic_background = any(word in normalized_q for word in ["background", "career", "professional"]) and not is_companies_query
+    # Check if it's asking about a specific company (must be a proper noun starting with capital)
+    company_match = re.search(r"(?:at|for)\s+([A-Z][a-zA-Z0-9\s\-&\.]*?)(?:\?|$)", question)
+    is_company_query = company_match is not None
+    
+    lines = resume_text.split("\n")
+    
+    if is_company_query and company_match:
+        # Extract experience for specific company
+        company_name = company_match.group(1).strip()
+        in_section = False
+        section_lines = []
+        company_normalized = company_name.lower().strip()
+        
+        for i, line in enumerate(lines):
+            line_lower = line.lower()
+            
+            # Check if this is the company header line
+            if company_normalized in line_lower and ("—" in line or " - " in line or "(" in line):
+                in_section = True
+                section_lines.append(line.strip())
+            elif in_section:
+                # Stop conditions: new company/section header or blank line followed by project/education
+                if line.strip() == "":
+                    continue
+                
+                # Check for next company (uppercase start, has company markers)
+                if line and line[0].isupper() and not line.startswith(" "):
+                    if ("—" in line or " - " in line) and any(loc in line for loc in [", ", "CA", "India", "MA"]):
+                        # This is likely a new company
+                        break
+                    # Check for section headers
+                    if any(header in line for header in ["Projects", "Education", "Certifications", "Technical Skills"]):
+                        break
+                
+                if line.strip():
+                    section_lines.append(line.strip())
+        
+        if section_lines:
+            # Format as paragraph with bullets
+            text = "\n".join(s for s in section_lines if s.strip())
+            return f"Based on my resume:\n\n{text}"
+        
+        return None
+    
+    if is_projects:
+        # Extract all projects section
+        projects_start = -1
+        projects_end = -1
+        
+        for i, line in enumerate(lines):
+            if "Projects" in line and not "Experience" in line:
+                projects_start = i
+            elif projects_start != -1 and line.strip() and not line.startswith(" "):
+                if not re.match(r"[A-Z\s]+", line):  # Not a header-style line
+                    projects_end = i
+                    break
+        
+        if projects_start != -1:
+            projects_end = projects_end if projects_end != -1 else len(lines)
+            project_lines = lines[projects_start:projects_end]
+            text = "\n".join(project_lines)
+            # Format bullets nicely
+            text = re.sub(r"^[\s\-•]*", "• ", text, flags=re.MULTILINE)
+            return f"Here are the projects I've worked on:\n\n{text.strip()}"
+        
+        return None
+    
+    if is_generic_background:
+        # Let API/GPT provide intelligent framing for generic background prompts
+        return None
+
+    if is_companies_query:
+        # Return experience overview for company-list questions
+        exp_start = -1
+
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if re.fullmatch(r"(?i)(professional\s+)?experience", stripped):
+                exp_start = i
+                break
+
+        if exp_start != -1:
+            exp_lines = []
+            current_company = None
+
+            for i in range(exp_start + 1, len(lines)):
+                line = lines[i]
+                stripped = line.strip()
+
+                # Stop at next major section
+                if stripped and re.fullmatch(r"(?i)(projects|education|technical skills|certifications)", stripped):
+                    break
+
+                # Company header line (contains — or -)
+                if ("—" in line or " - " in line) and stripped:
+                    if any(location_keyword in line for location_keyword in [", ", "CA", "India", "MA", "Boston", "Francisco", "Bangalore"]):
+                        if exp_lines and current_company:
+                            exp_lines.append("")
+                        current_company = stripped
+                        exp_lines.append(stripped)
+                    elif current_company:
+                        exp_lines.append(stripped)
+                elif stripped and (line.startswith("-") or line.startswith("•") or (current_company and line[:1].isspace())):
+                    exp_lines.append(stripped)
+
+            if exp_lines:
+                exp_text = "\n".join(exp_lines)
+                return f"Here's my professional experience:\n\n{exp_text}"
+
+        return None
+    
+    return None
+
+
+def _default_chat_messages() -> list[dict[str, str]]:
+    return [
+        {
+            "role": "assistant",
+            "content": "I've loaded your resume. Ask me anything about your education, skills, experience, or projects!",
+        }
+    ]
+
+
+def _default_chat_threads_payload() -> dict:
+    return {
+        "chat_threads": [
+            {
+                "id": 1,
+                "title": "New Chat 1",
+                "messages": _default_chat_messages(),
+            }
+        ],
+        "active_chat_id": 1,
+        "resume_text": None,
+        "resume_source": None,
+    }
+
+
+def _chat_history_file_for_user(username: str) -> Path:
+    safe_username = "".join(ch for ch in (username or "").lower() if ch.isalnum() or ch in {"_", "-"}) or "default"
+    history_dir = Path(__file__).resolve().parent / ".chat_history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    return history_dir / f"{safe_username}.json"
+
+
+def _load_user_chat_history(username: str) -> None:
+    payload = _default_chat_threads_payload()
+    file_path = _chat_history_file_for_user(username)
+
+    if file_path.exists():
+        try:
+            with open(file_path, "r", encoding="utf-8") as file:
+                loaded = json.load(file)
+            if isinstance(loaded, dict):
+                threads = loaded.get("chat_threads")
+                active_chat_id = loaded.get("active_chat_id")
+                resume_text = loaded.get("resume_text")
+                resume_source = loaded.get("resume_source")
+                if isinstance(threads, list) and threads:
+                    payload["chat_threads"] = threads
+                if isinstance(active_chat_id, int):
+                    payload["active_chat_id"] = active_chat_id
+                if isinstance(resume_text, str) and resume_text.strip():
+                    payload["resume_text"] = resume_text
+                if isinstance(resume_source, str) and resume_source.strip():
+                    payload["resume_source"] = resume_source
+        except Exception:
+            pass
+
+    st.session_state.chat_threads = payload["chat_threads"]
+    st.session_state.active_chat_id = payload["active_chat_id"]
+    st.session_state.resume_text = payload["resume_text"]
+    st.session_state.resume_source = payload["resume_source"]
+
+
+def _save_user_chat_history() -> None:
+    username = st.session_state.get("authenticated_user")
+    if not username:
+        return
+
+    _ensure_chat_threads_initialized()
+    payload = {
+        "chat_threads": st.session_state.chat_threads,
+        "active_chat_id": st.session_state.active_chat_id,
+        "resume_text": st.session_state.get("resume_text"),
+        "resume_source": st.session_state.get("resume_source"),
+    }
+    file_path = _chat_history_file_for_user(username)
+
+    try:
+        with open(file_path, "w", encoding="utf-8") as file:
+            json.dump(payload, file, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _build_chat_title(messages: list[dict[str, str]], chat_id: int) -> str:
+    for message in messages:
+        if message.get("role") == "user":
+            text = " ".join((message.get("content") or "").strip().split())
+            if text:
+                return text[:36] + ("..." if len(text) > 36 else "")
+    return f"New Chat {chat_id}"
+
+
+def _ensure_chat_threads_initialized() -> None:
+    if "chat_threads" not in st.session_state or not st.session_state.chat_threads:
+        st.session_state.chat_threads = [
+            {
+                "id": 1,
+                "title": "New Chat 1",
+                "messages": _default_chat_messages(),
+            }
+        ]
+    if "active_chat_id" not in st.session_state or st.session_state.active_chat_id is None:
+        st.session_state.active_chat_id = st.session_state.chat_threads[0]["id"]
+
+    existing_ids = {thread["id"] for thread in st.session_state.chat_threads}
+    if st.session_state.active_chat_id not in existing_ids:
+        st.session_state.active_chat_id = st.session_state.chat_threads[0]["id"]
+
+
+def _get_active_chat_thread() -> dict:
+    _ensure_chat_threads_initialized()
+    active_id = st.session_state.active_chat_id
+    for thread in st.session_state.chat_threads:
+        if thread["id"] == active_id:
+            return thread
+    fallback = st.session_state.chat_threads[0]
+    st.session_state.active_chat_id = fallback["id"]
+    return fallback
+
+
+def _create_new_chat_thread() -> None:
+    _ensure_chat_threads_initialized()
+    next_id = (max(thread["id"] for thread in st.session_state.chat_threads) + 1) if st.session_state.chat_threads else 1
+    new_thread = {
+        "id": next_id,
+        "title": f"New Chat {next_id}",
+        "messages": _default_chat_messages(),
+    }
+    st.session_state.chat_threads.insert(0, new_thread)
+    st.session_state.active_chat_id = next_id
+    _save_user_chat_history()
+
+
+def _delete_chat_thread(chat_id: int) -> None:
+    _ensure_chat_threads_initialized()
+    st.session_state.chat_threads = [
+        thread for thread in st.session_state.chat_threads if thread["id"] != chat_id
+    ]
+
+    if not st.session_state.chat_threads:
+        st.session_state.chat_threads = [
+            {
+                "id": 1,
+                "title": "New Chat 1",
+                "messages": _default_chat_messages(),
+            }
+        ]
+        st.session_state.active_chat_id = 1
+        _save_user_chat_history()
+        return
+
+    existing_ids = {thread["id"] for thread in st.session_state.chat_threads}
+    if st.session_state.active_chat_id not in existing_ids:
+        st.session_state.active_chat_id = st.session_state.chat_threads[0]["id"]
+    _save_user_chat_history()
+
+
 def _cover_letter_to_pdf(text: str, resume_text: str = "") -> bytes:
     """Render plain-text cover letter as a clean A4 PDF."""
     pdf = FPDF()
@@ -229,8 +701,8 @@ st.markdown(
         border-color: rgba(255,255,255,0.07) !important;
         margin: 0.4rem 0 !important;
     }
-    /* Logout button — CSS-pinned to sidebar base */
-    section[data-testid="stSidebar"] .stButton button {
+    /* Logout button — CSS-pinned to sidebar base (only primary button) */
+    section[data-testid="stSidebar"] .stButton button[kind="primary"] {
         position: fixed !important;
         bottom: 1.25rem !important;
         left: 1.25rem !important;
@@ -243,7 +715,7 @@ st.markdown(
         letter-spacing: 0.03em !important;
         padding: 0.55rem 0 !important;
     }
-    section[data-testid="stSidebar"] .stButton button:hover {
+    section[data-testid="stSidebar"] .stButton button[kind="primary"]:hover {
         background: linear-gradient(135deg, #f43f5e, #be185d) !important;
         box-shadow: 0 4px 16px rgba(225,29,72,0.4) !important;
         border-color: rgba(244,63,94,0.5) !important;
@@ -264,10 +736,26 @@ if "resume_source" not in st.session_state:
     st.session_state.resume_source = None
 if "chat_messages" not in st.session_state:
     st.session_state.chat_messages = []
+if "chat_threads" not in st.session_state:
+    st.session_state.chat_threads = []
+if "active_chat_id" not in st.session_state:
+    st.session_state.active_chat_id = None
 if "generated_cover_letter" not in st.session_state:
     st.session_state.generated_cover_letter = None
 if "generated_cover_letter_meta" not in st.session_state:
     st.session_state.generated_cover_letter_meta = {}
+if "nav_page" not in st.session_state:
+    st.session_state.nav_page = "Upload & Chat"
+if "pending_nav_page" not in st.session_state:
+    st.session_state.pending_nav_page = None
+if "show_skill_gap_cta" not in st.session_state:
+    st.session_state.show_skill_gap_cta = False
+if "show_cover_letter_cta" not in st.session_state:
+    st.session_state.show_cover_letter_cta = False
+
+if st.session_state.pending_nav_page:
+    st.session_state.nav_page = st.session_state.pending_nav_page
+    st.session_state.pending_nav_page = None
 
 # ============================================================================
 # Login Page
@@ -672,18 +1160,15 @@ if not st.session_state.authenticated:
             st.session_state.authenticated      = True
             st.session_state.authenticated_user = "Apurva"
             st.session_state._login_cred_err    = False
+            _load_user_chat_history(st.session_state.authenticated_user)
             st.rerun()
         else:
             st.session_state._login_cred_err = True
             st.rerun()
 
     # ── DEMO HINT + FEATURE CHIPS (below card) ──
-    st.markdown("""
-    <div class="demo-box">
-      <span class="demo-badge">Demo</span>
-      <span>Use <span class="demo-cred">apurva</span> / <span class="demo-cred">resume123</span> to sign in</span>
-    </div>
-    <div class="chips-row">
+        st.markdown("""
+        <div class="chips-row">
       <span class="chip">Upload &amp; Chat</span>
       <span class="chip">RAG Pipeline</span>
       <span class="chip">Evaluation</span>
@@ -731,20 +1216,55 @@ with st.sidebar:
     # Navigation
     page = st.radio(
         "Navigation",
-        ["Upload & Chat", "Skill Gap Analyzer", "Cover Letter Generator",
-         "Dataset Explorer", "Evaluation Results", "Artifacts"],
+        ["Upload & Chat", "Skill Gap Analyzer", "Cover Letter Generator"],
+        key="nav_page",
         label_visibility="collapsed",
     )
 
+    if page == "Upload & Chat":
+        st.divider()
+        st.markdown("### 💬 Previous Chats")
+        _ensure_chat_threads_initialized()
+
+        if st.button("+ New Chat", key="sidebar_new_chat", use_container_width=True):
+            _create_new_chat_thread()
+            st.session_state.show_skill_gap_cta = False
+            st.session_state.show_cover_letter_cta = False
+            st.rerun()
+
+        for thread in list(st.session_state.chat_threads):
+            chat_col, del_col = st.columns([5, 1])
+
+            with chat_col:
+                prefix = "🟣 " if thread["id"] == st.session_state.active_chat_id else "⚪ "
+                label = f"{prefix}{thread['title']}"
+                if st.button(label, key=f"sidebar_chat_{thread['id']}", use_container_width=True):
+                    st.session_state.active_chat_id = thread["id"]
+                    st.session_state.show_skill_gap_cta = False
+                    st.session_state.show_cover_letter_cta = False
+                    _save_user_chat_history()
+                    st.rerun()
+
+            with del_col:
+                if st.button("🗑️", key=f"delete_chat_{thread['id']}", use_container_width=True):
+                    _delete_chat_thread(thread["id"])
+                    st.session_state.show_skill_gap_cta = False
+                    st.session_state.show_cover_letter_cta = False
+                    st.rerun()
+
     # Logout — CSS-pinned to sidebar bottom
-    if st.button("→  Logout", use_container_width=True, key="sidebar_logout"):
+    if st.button("Log out", use_container_width=True, key="sidebar_logout", type="primary"):
         st.session_state.authenticated = False
         st.session_state.authenticated_user = None
         st.session_state.resume_text = None
         st.session_state.resume_source = None
         st.session_state.chat_messages = []
+        st.session_state.chat_threads = []
+        st.session_state.active_chat_id = None
         st.session_state.generated_cover_letter = None
         st.session_state.generated_cover_letter_meta = {}
+        st.session_state.show_skill_gap_cta = False
+        st.session_state.show_cover_letter_cta = False
         st.rerun()
 
 # ============================================================================
@@ -790,6 +1310,7 @@ if page == "Upload & Chat":
                 else:
                     st.session_state.resume_text = result["text"]
                     st.session_state.resume_source = f"Uploaded: {result['filename']}"
+                    _save_user_chat_history()
                     st.success("✅ Resume loaded successfully!")
             except Exception as exc:
                 st.error(f"❌ Failed to upload: {exc}")
@@ -803,50 +1324,119 @@ if page == "Upload & Chat":
         st.markdown("### 💬 Step 2: Ask Questions")
         st.info("Your resume is ready. Ask questions about education, skills, experience, projects, etc.")
 
-        # Chat interface
-        if "chat_messages" not in st.session_state or not st.session_state.chat_messages:
-            st.session_state.chat_messages = [
-                {
-                    "role": "assistant",
-                    "content": "I've loaded your resume. Ask me anything about your education, skills, experience, or projects!",
-                }
-            ]
+        _ensure_chat_threads_initialized()
+
+        active_thread = _get_active_chat_thread()
+
+        st.caption(f"Current chat: {active_thread.get('title', 'New Chat')}")
+
+        if not active_thread.get("messages"):
+            active_thread["messages"] = _default_chat_messages()
 
         # Display chat history
-        for message in st.session_state.chat_messages:
+        for message in active_thread["messages"]:
             with st.chat_message(message["role"]):
                 st.write(message["content"])
 
         # Chat input
         user_question = st.chat_input("Ask about your resume...")
         if user_question:
-            st.session_state.chat_messages.append({"role": "user", "content": user_question})
+            active_thread["messages"].append({"role": "user", "content": user_question})
+            active_thread["title"] = _build_chat_title(active_thread["messages"], active_thread["id"])
+            _save_user_chat_history()
             with st.chat_message("user"):
                 st.write(user_question)
 
-            # Call FastAPI backend
-            with st.spinner("Searching your resume..."):
-                try:
-                    payload = {
-                        "question": user_question,
-                    }
-                    response = requests.post(f"{API_URL}/answer", json=payload, timeout=30)
-                    response.raise_for_status()
-                    result = response.json()
+            if _is_cover_letter_related_question(user_question):
+                redirect_text = (
+                    "This looks like a cover letter request. Please use Cover Letter Generator for the best result."
+                )
+                st.session_state.show_cover_letter_cta = True
+                st.session_state.show_skill_gap_cta = False
+                active_thread["messages"].append({"role": "assistant", "content": redirect_text})
+                _save_user_chat_history()
+                with st.chat_message("assistant"):
+                    st.write(redirect_text)
+            elif _is_comparative_skill_question(user_question):
+                # Comparative skill questions → Skill Gap Analyzer
+                redirect_text = (
+                    "This looks like a job comparison question. Please use Skill Gap Analyzer to compare your skills with job requirements and get gap insights."
+                )
+                st.session_state.show_skill_gap_cta = True
+                st.session_state.show_cover_letter_cta = False
+                active_thread["messages"].append({"role": "assistant", "content": redirect_text})
+                _save_user_chat_history()
+                with st.chat_message("assistant"):
+                    st.write(redirect_text)
+            elif _is_skill_related_question(user_question):
+                # Specific skill extraction questions → Extract from resume
+                st.session_state.show_skill_gap_cta = False
+                st.session_state.show_cover_letter_cta = False
+                
+                with st.spinner("Extracting skill information..."):
+                    # First check if it's a specific skill query (e.g., "do I know Java?")
+                    specific_skill_answer = _check_specific_skill_in_resume(user_question, st.session_state.resume_text)
                     
-                    st.session_state.chat_messages.append({"role": "assistant", "content": result["answer"]})
+                    if specific_skill_answer:
+                        response_text = specific_skill_answer
+                    else:
+                        # General skill extraction (e.g., "What cloud technologies do I know?")
+                        extracted_skills = _extract_skill_section_from_resume(user_question, st.session_state.resume_text)
+                        if extracted_skills:
+                            response_text = f"Based on your resume, here are the relevant skills:\n\n{extracted_skills}"
+                        else:
+                            response_text = "I found the Technical Skills section in your resume. Here's what's listed:\n\n" + _extract_skill_section_from_resume("skills", st.session_state.resume_text)
+                    
+                    active_thread["messages"].append({"role": "assistant", "content": response_text})
+                    _save_user_chat_history()
                     with st.chat_message("assistant"):
-                        st.write(result["answer"])
-                    
-                    # Only show retrieved chunks if answer was found
-                    if result.get("show_chunks", False) and result.get("retrieved_chunks"):
-                        with st.expander("📑 Retrieved resume sections"):
-                            for idx, chunk in enumerate(result["retrieved_chunks"], 1):
-                                st.markdown(f"**Section {idx}:**")
-                                st.write(chunk)
-                                st.divider()
-                except Exception as exc:
-                    st.error(f"❌ Failed to get answer: {exc}")
+                        st.write(response_text)
+            else:
+                st.session_state.show_skill_gap_cta = False
+                st.session_state.show_cover_letter_cta = False
+
+                # Try extracting experience/project info first
+                with st.spinner("Searching your resume..."):
+                    try:
+                        # First try local extraction for experience/project questions
+                        experience_answer = _extract_experience_paragraph(user_question, st.session_state.resume_text)
+                        
+                        if experience_answer:
+                            # Local extraction succeeded
+                            active_thread["messages"].append({"role": "assistant", "content": experience_answer})
+                            _save_user_chat_history()
+                            with st.chat_message("assistant"):
+                                st.write(experience_answer)
+                        else:
+                            # Fall back to API
+                            payload = {
+                                "question": user_question,
+                                "resume_text": st.session_state.resume_text,
+                            }
+                            response = requests.post(f"{API_URL}/answer", json=payload, timeout=30)
+                            response.raise_for_status()
+                            result = response.json()
+
+                            active_thread["messages"].append({"role": "assistant", "content": result["answer"]})
+                            _save_user_chat_history()
+                            with st.chat_message("assistant"):
+                                st.write(result["answer"])
+                    except Exception as exc:
+                        st.error(f"❌ Failed to get answer: {exc}")
+
+        if st.session_state.show_skill_gap_cta:
+            st.info("For skill matching and gap analysis, use the dedicated analyzer.")
+            if st.button("Go to Skill Gap Analyzer", key="go_skill_gap_persistent"):
+                st.session_state.show_skill_gap_cta = False
+                st.session_state.pending_nav_page = "Skill Gap Analyzer"
+                st.rerun()
+
+        if st.session_state.show_cover_letter_cta:
+            st.info("For tailored drafting, use the dedicated cover letter generator.")
+            if st.button("Go to Cover Letter Generator", key="go_cover_letter_persistent"):
+                st.session_state.show_cover_letter_cta = False
+                st.session_state.pending_nav_page = "Cover Letter Generator"
+                st.rerun()
     else:
         st.warning("⬆️ Please upload a resume to start chatting.")
 
