@@ -3,6 +3,7 @@ Streamlit frontend for Document Chatbot.
 Calls FastAPI backend for RAG, dataset exploration, and evaluation features.
 """
 
+import hashlib
 import io
 import json
 import os
@@ -17,6 +18,42 @@ from fpdf.enums import XPos, YPos
 
 # FastAPI endpoint
 API_URL = os.getenv("API_URL", "http://localhost:8000")
+
+# ── User credentials store ──
+_USERS_FILE = Path(__file__).parent / "users.json"
+
+def _load_users() -> dict:
+    if _USERS_FILE.exists():
+        return json.loads(_USERS_FILE.read_text())
+    return {}
+
+def _save_users(users: dict) -> None:
+    _USERS_FILE.write_text(json.dumps(users, indent=2))
+
+def _hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def _verify_login(username: str, password: str) -> bool:
+    if username.strip() == "apurva" and password == "resume123":
+        return True
+    users = _load_users()
+    hashed = _hash_password(password)
+    return users.get(username.strip().lower()) == hashed
+
+def _register_user(username: str, password: str) -> tuple[bool, str]:
+    username = username.strip().lower()
+    if not username or not password:
+        return False, "Username and password cannot be empty."
+    if len(password) < 6:
+        return False, "Password must be at least 6 characters."
+    if username == "apurva":
+        return False, "Username already exists."
+    users = _load_users()
+    if username in users:
+        return False, "Username already exists."
+    users[username] = _hash_password(password)
+    _save_users(users)
+    return True, "Account created successfully! You can now sign in."
 
 
 _UNICODE_REPLACEMENTS = str.maketrans({
@@ -258,6 +295,8 @@ if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "authenticated_user" not in st.session_state:
     st.session_state.authenticated_user = None
+if "show_signup" not in st.session_state:
+    st.session_state.show_signup = False
 if "resume_text" not in st.session_state:
     st.session_state.resume_text = None
 if "resume_source" not in st.session_state:
@@ -276,6 +315,7 @@ if "generated_cover_letter_meta" not in st.session_state:
 if not st.session_state.authenticated:
     _cred_err = st.session_state.get("_login_cred_err", False)
 
+    # ── Shared CSS for login & signup pages ──
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
@@ -568,12 +608,16 @@ if not st.session_state.authenticated:
        15. DEMO BOX + BADGE (fix 6)
     ═══════════════════════════════════════════════ */
     .demo-box {
-        display: flex; align-items: center; gap: 10px;
+        display: inline-flex; align-items: center; gap: 10px;
         background: rgba(255,255,255,0.02);
         border: 1px solid rgba(255,255,255,0.05);
-        border-radius: 10px; padding: 12px 14px;
+        border-radius: 10px; padding: 10px 20px;
         margin-top: 14px; font-size: 13px; color: #64748b;
         animation: fadeUp 0.5s 0.32s ease both;
+        width: auto;
+    }
+    .demo-box-wrap {
+        display: flex; justify-content: center; margin-top: 6px;
     }
     .demo-badge {
         background: #4c1d95;
@@ -603,6 +647,45 @@ if not st.session_state.authenticated:
     </style>
 
     """, unsafe_allow_html=True)
+
+    if st.session_state.show_signup:
+        # ── SIGNUP PAGE ──
+        _, card_col, _ = st.columns([0.3, 5, 0.3])
+        with card_col:
+            st.markdown("""
+            <div style="text-align:center; padding-bottom:20px; margin-bottom:20px; border-bottom:1px solid rgba(255,255,255,0.05);">
+              <div style="font-size:28px; font-weight:700; color:#ffffff; margin-bottom:6px;">Create Account</div>
+              <p style="font-size:13px; color:#64748b; margin:0;">Fill in the details below to get started</p>
+            </div>
+            """, unsafe_allow_html=True)
+            with st.form("signup_form"):
+                st.markdown('<span style="font-size:12px;color:#94a3b8;font-weight:500;letter-spacing:0.5px;">USERNAME</span>', unsafe_allow_html=True)
+                new_user = st.text_input("u", placeholder="Choose a username", key="signup_username", label_visibility="collapsed")
+                st.markdown('<span style="font-size:12px;color:#94a3b8;font-weight:500;letter-spacing:0.5px;">PASSWORD</span>', unsafe_allow_html=True)
+                new_pass = st.text_input("p", type="password", placeholder="At least 6 characters", key="signup_password", label_visibility="collapsed")
+                st.markdown('<span style="font-size:12px;color:#94a3b8;font-weight:500;letter-spacing:0.5px;">CONFIRM PASSWORD</span>', unsafe_allow_html=True)
+                new_pass2 = st.text_input("p2", type="password", placeholder="Repeat your password", key="signup_password2", label_visibility="collapsed")
+                signup_submitted = st.form_submit_button("Create Account", use_container_width=True)
+
+            if signup_submitted:
+                if new_pass != new_pass2:
+                    st.error("❌ Passwords do not match.")
+                else:
+                    ok, msg = _register_user(new_user, new_pass)
+                    if ok:
+                        st.success(f"✅ {msg} Please sign in.")
+                        st.session_state.show_signup = False
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {msg}")
+
+            _bl, _bm, _br = st.columns([0.5, 5, 0.5])
+            with _bm:
+                if st.button("← Back to Sign In", use_container_width=True, key="back_to_login"):
+                    st.session_state.show_signup = False
+                    st.rerun()
+
+        st.stop()
 
     # ── SINGLE GLASS CARD: header + form ──
     with st.form("login_form", clear_on_submit=False):
@@ -668,22 +751,52 @@ if not st.session_state.authenticated:
 
     # ── AUTH LOGIC ──
     if submitted:
-        if username.strip() == "apurva" and password == "resume123":
+        if _verify_login(username, password):
             st.session_state.authenticated      = True
-            st.session_state.authenticated_user = "Apurva"
+            st.session_state.authenticated_user = username.strip().capitalize()
             st.session_state._login_cred_err    = False
             st.rerun()
         else:
             st.session_state._login_cred_err = True
             st.rerun()
 
-    # ── DEMO HINT + FEATURE CHIPS (below card) ──
+    # ── SIGNUP LINK ──
     st.markdown("""
-    <div class="demo-box">
-      <span class="demo-badge">Demo</span>
-      <span>Use <span class="demo-cred">apurva</span> / <span class="demo-cred">resume123</span> to sign in</span>
-    </div>
-    <div class="chips-row">
+    <style>
+    div[data-testid="stButton"]:has(button[key="goto_signup"]) {
+        display: flex; justify-content: center; margin-top: 14px;
+    }
+    div[data-testid="stButton"]:has(button[key="goto_signup"]) button {
+        background: rgba(255,255,255,0.02) !important;
+        border: 1px solid rgba(255,255,255,0.05) !important;
+        border-radius: 10px !important;
+        color: #64748b !important;
+        font-size: 13px !important;
+        font-weight: 400 !important;
+        padding: 10px 20px !important;
+        box-shadow: none !important;
+        white-space: nowrap !important;
+        width: auto !important;
+    }
+    div[data-testid="stButton"]:has(button[key="goto_signup"]) button b {
+        color: #ffffff !important;
+        font-weight: 700 !important;
+    }
+    div[data-testid="stButton"]:has(button[key="goto_signup"]) button:hover {
+        border-color: rgba(99,102,241,0.3) !important;
+        background: rgba(255,255,255,0.04) !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    _l, _m, _r = st.columns([0.5, 5, 0.5])
+    with _m:
+        if st.button("Don't have an account?  Sign up", key="goto_signup", use_container_width=True):
+            st.session_state.show_signup = True
+            st.rerun()
+
+    st.markdown("""
+    <div class="chips-row" style="margin-top:2px">
       <span class="chip">Upload &amp; Chat</span>
       <span class="chip">RAG Pipeline</span>
       <span class="chip">Evaluation</span>
