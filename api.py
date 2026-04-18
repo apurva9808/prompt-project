@@ -195,9 +195,47 @@ def _extract_answer_from_context(question: str, context: str) -> str:
     return RAG_NOT_FOUND_MESSAGE
 
 
-def _retrieve_resume_chunks(question: str, resume_text: str) -> list[str]:
-    """Retrieve top chunks from resume based on question keywords (BM25-like)."""
+def _get_embedding(text: str) -> list[float] | None:
+    """Get OpenAI embedding for a text string."""
+    if CLIENT is None:
+        return None
+    try:
+        response = CLIENT.embeddings.create(
+            model="text-embedding-3-small",
+            input=text[:8000],
+        )
+        return response.data[0].embedding
+    except Exception:
+        return None
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(x * x for x in b) ** 0.5
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _retrieve_resume_chunks(question: str, resume_text: str) -> tuple[list[str], bool]:
+    """Retrieve top chunks using semantic embeddings when available, keyword fallback otherwise.
+    Returns (chunks, used_semantic)."""
     chunks = _split_resume_chunks(resume_text)
+
+    if CLIENT is not None:
+        question_emb = _get_embedding(question)
+        if question_emb is not None:
+            chunk_embeddings = [_get_embedding(c) for c in chunks]
+            scored = [
+                (_cosine_similarity(question_emb, emb), chunk)
+                for emb, chunk in zip(chunk_embeddings, chunks)
+                if emb is not None
+            ]
+            scored.sort(key=lambda x: x[0], reverse=True)
+            return [chunk for _, chunk in scored[:4]], True
+
+    # Keyword fallback
     question_tokens = {token for token in _tokenize(question) if len(token) > 2}
 
     def score(chunk: str) -> tuple[int, int]:
@@ -206,7 +244,7 @@ def _retrieve_resume_chunks(question: str, resume_text: str) -> list[str]:
         return overlap, -len(chunk)
 
     ranked = sorted(chunks, key=score, reverse=True)
-    return ranked[:4]
+    return ranked[:4], False
 
 
 def _max_question_chunk_overlap(question: str, chunks: list[str]) -> int:
@@ -270,19 +308,20 @@ def _answer_for_resume(question: str, resume_text: str, source: str) -> AnswerRe
             show_chunks=False,
         )
 
-    retrieved_chunks = _retrieve_resume_chunks(normalized_question, resume_text)
+    retrieved_chunks, used_semantic = _retrieve_resume_chunks(normalized_question, resume_text)
     context = "\n\n".join(retrieved_chunks)
 
-    overlap_score = _max_question_chunk_overlap(normalized_question, retrieved_chunks)
-    if overlap_score < 1:
-        return AnswerResponse(
-            question=question,
-            answer=NOT_RELATED_MESSAGE,
-            retrieved_chunks=[],
-            source=source,
-            grounded=False,
-            show_chunks=False,
-        )
+    if not used_semantic:
+        overlap_score = _max_question_chunk_overlap(normalized_question, retrieved_chunks)
+        if overlap_score < 1:
+            return AnswerResponse(
+                question=question,
+                answer=NOT_RELATED_MESSAGE,
+                retrieved_chunks=[],
+                source=source,
+                grounded=False,
+                show_chunks=False,
+            )
 
     if CLIENT is not None:
         try:
