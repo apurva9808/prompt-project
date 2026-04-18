@@ -1442,6 +1442,27 @@ async def answer_question(request: QuestionRequest) -> AnswerResponse:
     - If OPENAI_API_KEY is set, uses ChatGPT
     - Otherwise uses offline extraction fallback
     """
+    # Redirect questions about cover letter or skill gap to the right section
+    _q = request.question.lower()
+    if any(kw in _q for kw in {"cover letter", "cover-letter", "coverletter"}):
+        return AnswerResponse(
+            question=request.question,
+            answer="It looks like you want to generate a cover letter. Please head to the **Cover Letter Generator** section in the sidebar.",
+            retrieved_chunks=[],
+            source="redirect",
+            grounded=False,
+            show_chunks=False,
+        )
+    if any(kw in _q for kw in {"skill gap", "skill-gap", "skills gap", "missing skills", "analyze skills", "analyse skills", "analyze my skills", "analyse my skills", "skill analysis", "skills analysis", "analyse skill", "analyze skill"}):
+        return AnswerResponse(
+            question=request.question,
+            answer="It looks like you want to analyze skill gaps. Please head to the **Skill Gap Analyzer** section in the sidebar.",
+            retrieved_chunks=[],
+            source="redirect",
+            grounded=False,
+            show_chunks=False,
+        )
+
     effective_resume_text = (CURRENT_UPLOADED_RESUME_TEXT or request.resume_text or "").strip()
     if not effective_resume_text:
         return AnswerResponse(
