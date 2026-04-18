@@ -731,8 +731,7 @@ with st.sidebar:
     # Navigation
     page = st.radio(
         "Navigation",
-        ["Upload & Chat", "Skill Gap Analyzer", "Cover Letter Generator",
-         "Dataset Explorer", "Evaluation Results", "Artifacts"],
+        ["Upload & Chat", "Skill Gap Analyzer", "Cover Letter Generator"],
         label_visibility="collapsed",
     )
 
@@ -1102,19 +1101,18 @@ elif page == "Cover Letter Generator":
             safe_role = str(letter_meta.get("role_title", "role")).strip().lower().replace(" ", "_")
 
             st.divider()
-            summary_col1, summary_col2, summary_col3 = st.columns(3)
+            job_skills_list = letter_meta.get("job_skills", [])
+            matched_list = letter_meta.get("matched_job_skills", [])
+            resume_match_rate = (len(matched_list) / len(job_skills_list) * 100) if job_skills_list else 0
+
+            summary_col1, summary_col2 = st.columns(2)
             with summary_col1:
                 st.metric("Company", letter_meta.get("company_name", "-"))
             with summary_col2:
                 st.metric("Role", letter_meta.get("role_title", "-"))
-            with summary_col3:
-                st.metric("Coverage", f"{letter_meta.get('coverage_score', 0)}%")
 
             # Resume-JD alignment warning
-            job_skills_list = letter_meta.get("job_skills", [])
-            matched_list = letter_meta.get("matched_job_skills", [])
             if job_skills_list:
-                resume_match_rate = len(matched_list) / len(job_skills_list) * 100
                 if resume_match_rate < 50:
                     st.warning(
                         "⚠️ **Your resume does not align well with this job description.**\n\n"
@@ -1188,173 +1186,6 @@ elif page == "Cover Letter Generator":
             with action_col2:
                 st.caption(f"Saved filename: {download_name}")
 
-# ============================================================================
-# Page: Dataset Explorer
-# ============================================================================
-
-elif page == "Dataset Explorer":
-    st.markdown("## 📊 Dataset Explorer")
-    st.caption("Browse the 45-item evaluation dataset (30 typical + 10 edge + 5 adversarial)")
-
-    with st.spinner("Loading dataset..."):
-        try:
-            response = requests.get(f"{API_URL}/dataset", timeout=10)
-            response.raise_for_status()
-            dataset = response.json()
-            
-            if not dataset.get("items"):
-                st.warning("No dataset found.")
-            else:
-                items = dataset.get("items", [])
-                st.metric("Total Items", len(items))
-                
-                # Filter by category
-                categories = list(set(item.get("category", "unknown") for item in items))
-                selected_category = st.selectbox("Filter by category", ["All"] + categories)
-                
-                filtered_items = items
-                if selected_category != "All":
-                    filtered_items = [item for item in items if item.get("category") == selected_category]
-                
-                st.markdown(f"### Showing {len(filtered_items)} items")
-                for idx, item in enumerate(filtered_items, 1):
-                    with st.expander(f"{idx}. **Q:** {item.get('query', '')[:80]}..."):
-                        st.markdown(f"**Question:** {item.get('query', '')}")
-                        st.markdown(f"**Ground Truth:** {item.get('ground_truth', '')}")
-                        st.markdown(f"**Category:** `{item.get('category', 'unknown')}`")
-        except Exception as exc:
-            st.error(f"❌ Failed to load dataset: {exc}")
-
-# ============================================================================
-# Page: Evaluation Results
-# ============================================================================
-
-elif page == "Evaluation Results":
-    st.markdown("## 📈 Evaluation Results")
-
-    tab_live, tab_step3, tab_step4 = st.tabs(["Live on Uploaded Resume", "Step 3: RAG Pipeline", "Step 4: Meta-Prompting"])
-
-    with tab_live:
-        st.markdown("### Live Evaluation on Uploaded Resume")
-        st.caption("Runs RAG + evaluation using the resume you uploaded in Upload & Chat.")
-
-        col1, col2, col3 = st.columns([1, 1, 1.2])
-        with col1:
-            selected_split = st.selectbox("Dataset split", ["test", "dev", "train"], index=0)
-        with col2:
-            max_items = st.number_input("Max items (0 = all)", min_value=0, max_value=100, value=8, step=1)
-        with col3:
-            run_live_eval = st.button("Run evaluation on uploaded resume", type="primary")
-
-        if run_live_eval:
-            payload = {"split": selected_split}
-            if max_items > 0:
-                payload["max_items"] = int(max_items)
-
-            with st.spinner("Running live RAG evaluation..."):
-                try:
-                    response = requests.post(f"{API_URL}/evaluate-uploaded", json=payload, timeout=120)
-                    response.raise_for_status()
-                    live = response.json()
-
-                    if live.get("error"):
-                        st.error(f"❌ {live['error']}")
-                    else:
-                        summary = live.get("summary", {})
-                        d1, d2, d3, d4 = st.columns(4)
-                        d1.metric("Accuracy", f"{summary.get('accuracy', 0)}%")
-                        d2.metric("Correct", f"{summary.get('correct', 0)}/{summary.get('total', 0)}")
-                        d3.metric("Abstention rate", f"{summary.get('abstention_rate', 0)}%")
-                        d4.metric("Source", summary.get("source", "uploaded_resume"))
-
-                        st.markdown("#### Detailed results")
-                        for row in live.get("details", []):
-                            status = "✅" if row.get("correct") else "❌"
-                            with st.expander(f"{status} {row.get('id')} • {row.get('query', '')[:90]}"):
-                                st.markdown(f"**Category:** `{row.get('category', 'unknown')}`")
-                                st.markdown(f"**Question:** {row.get('query', '')}")
-                                st.markdown(f"**Ground Truth:** {row.get('ground_truth', '')}")
-                                st.markdown(f"**Answer:** {row.get('answer', '')}")
-                                if row.get("show_chunks") and row.get("retrieved_chunks"):
-                                    st.markdown("**Retrieved sections:**")
-                                    for idx, chunk in enumerate(row.get("retrieved_chunks", []), 1):
-                                        st.markdown(f"- Section {idx}: {chunk[:220]}...")
-                except Exception as exc:
-                    st.error(f"❌ Failed to run live evaluation: {exc}")
-
-    with tab_step3:
-        st.markdown("### Step 3: RAG Pipeline Results")
-        st.caption("Query rewriting, retrieval, filtering, grounding — full pipeline evaluation")
-        
-        with st.spinner("Loading Step 3 results..."):
-            try:
-                response = requests.get(f"{API_URL}/step3-results", timeout=10)
-                response.raise_for_status()
-                results = response.json()
-                
-                if not results:
-                    st.info("No Step 3 results found.")
-                else:
-                    st.json(results)
-            except Exception as exc:
-                st.error(f"❌ Failed to load results: {exc}")
-
-    with tab_step4:
-        st.markdown("### Step 4: Meta-Prompting Results")
-        st.caption("Prompt critique and improvement — GPT-based meta-prompting evaluation")
-        
-        with st.spinner("Loading Step 4 results..."):
-            try:
-                response = requests.get(f"{API_URL}/step4-results", timeout=10)
-                response.raise_for_status()
-                results = response.json()
-                
-                if not results:
-                    st.info("No Step 4 results found.")
-                else:
-                    st.json(results)
-            except Exception as exc:
-                st.error(f"❌ Failed to load results: {exc}")
-
-# ============================================================================
-# Page: Artifacts
-# ============================================================================
-
-elif page == "Artifacts":
-    st.markdown("## 🎯 Fine-Tuning Artifacts")
-    st.caption("Download training and evaluation data for fine-tuning")
-
-    tab_train, tab_dev = st.tabs(["Training Data", "Dev Data"])
-
-    with tab_train:
-        st.markdown("### Training JSONL")
-        with st.spinner("Loading training data preview..."):
-            try:
-                response = requests.get(f"{API_URL}/finetune-preview?file_type=train&max_lines=5", timeout=10)
-                response.raise_for_status()
-                data = response.json()
-                
-                st.metric("Total training lines", data.get("total", 0))
-                st.markdown("**Preview (first 5 lines):**")
-                for line in data.get("lines", []):
-                    st.json(line)
-            except Exception as exc:
-                st.error(f"❌ Failed to load: {exc}")
-
-    with tab_dev:
-        st.markdown("### Dev JSONL")
-        with st.spinner("Loading dev data preview..."):
-            try:
-                response = requests.get(f"{API_URL}/finetune-preview?file_type=dev&max_lines=5", timeout=10)
-                response.raise_for_status()
-                data = response.json()
-                
-                st.metric("Total dev lines", data.get("total", 0))
-                st.markdown("**Preview (first 5 lines):**")
-                for line in data.get("lines", []):
-                    st.json(line)
-            except Exception as exc:
-                st.error(f"❌ Failed to load: {exc}")
 
 
 
